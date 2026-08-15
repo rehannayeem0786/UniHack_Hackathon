@@ -1,0 +1,40 @@
+# --- Core web stack ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+aiofiles==24.1.0
+jinja2==3.1.5
+
+# --- Data handling ---
+pandas==2.2.3
+numpy==2.2.1
+openpyxl==3.1.5
+XlsxWriter==3.2.0
+
+# --- AI / LLM ---
+# Groq is the primary provider (generous free-tier limits, very low latency).
+# Gemini is kept as an automatic fallback provider.
+groq==1.6.0
+google-genai==2.17.0
+
+# --- Matching & retrieval ---
+scikit-learn==1.6.0
+rapidfuzz==3.11.0
+
+# --- Manufacturer source retrieval ---
+# lxml parses manufacturer product pages (specification tables, JSON-LD blocks
+# and document links). pypdf reads the specification sheets and manuals those
+# pages link to; a PDF it cannot parse degrades to "no evidence", never an error.
+lxml==5.3.0
+pypdf==5.1.0
+
+# --- Config & validation ---
+pydantic==2.13.4
+pydantic-settings==2.7.1
+python-dotenv==1.0.1
+
+# --- HTTP ---
+httpx==0.28.1
+
+# --- Tests ---
+pytest==8.3.4

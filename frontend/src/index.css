@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Dark-first token set. The palette is deliberately narrow: one blue for
+ * action, emerald for verified, amber for needs-review, rose for wrong. In a
+ * data tool colour has to mean something, so anything decorative is greyscale.
+ */
+@layer base {
+  :root {
+    --background: 224 47% 5%;
+    --foreground: 213 31% 94%;
+
+    --surface: 223 44% 7%;
+    --surface-raised: 222 40% 10%;
+
+    --card: 223 44% 7.5%;
+    --card-foreground: 213 31% 94%;
+
+    --popover: 222 44% 8%;
+    --popover-foreground: 213 31% 94%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 6%;
+
+    --secondary: 222 33% 14%;
+    --secondary-foreground: 213 31% 91%;
+
+    --muted: 222 30% 13%;
+    --muted-foreground: 215 18% 62%;
+
+    --accent: 222 33% 15%;
+    --accent-foreground: 213 31% 94%;
+
+    --destructive: 350 82% 60%;
+    --destructive-foreground: 222 47% 6%;
+
+    --success: 158 68% 45%;
+    --success-foreground: 222 47% 6%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 222 47% 6%;
+
+    --border: 220 28% 17%;
+    --input: 220 28% 18%;
+    --ring: 217 91% 60%;
+
+    --radius: 0.7rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Ambient depth. Fixed and non-interactive so it never fights the content. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        60rem 40rem at 12% -10%,
+        hsl(217 91% 60% / 0.13),
+        transparent 60%
+      ),
+      radial-gradient(
+        50rem 34rem at 92% 4%,
+        hsl(158 68% 45% / 0.08),
+        transparent 60%
+      );
+  }
+
+  /* Visible focus everywhere, never removed. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::selection {
+    @apply bg-primary/30 text-foreground;
+  }
+
+  /* Scrollbars that match the surface instead of punching a hole in it. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full border-4 border-solid border-transparent bg-border bg-clip-content;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+    background-clip: content-box;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Frosted panel used for the header and hero surfaces. */
+  .glass {
+    @apply border border-white/[0.06] bg-white/[0.02] backdrop-blur-xl;
+  }
+
+  /* Numeric columns: tabular figures so digits line up down a table. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  .sr-only-focusable:not(:focus):not(:focus-within) {
+    @apply sr-only;
+  }
+}

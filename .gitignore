@@ -1,0 +1,40 @@
+# --- Secrets ---
+.env
+*.key
+
+# --- Virtual environment ---
+.venv/
+venv/
+env/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Project artifacts ---
+.cache/
+runs/
+outputs/
+*.log
+
+# --- Frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/smoke.png
+npm-debug.log*
+
+# --- Scratch / probes ---
+_probe*.py
+_p2.txt
+_guide.txt
+_probe_out.txt
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
