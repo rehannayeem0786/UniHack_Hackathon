@@ -38,3 +38,11 @@ httpx==0.28.1
 
 # --- Tests ---
 pytest==8.3.4
+
+# --- Submission deliverable builders ---
+# python-pptx embeds the captured screenshots into the official deck template
+# (scripts/build_deck.py); reportlab renders the evaluation report PDF from
+# the metrics JSONs (scripts/build_report.py). Neither is needed to run the
+# pipeline itself — only to regenerate the submitted artefacts.
+python-pptx==1.0.2
+reportlab==5.0.0
