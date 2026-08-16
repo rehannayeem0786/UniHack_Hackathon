@@ -18,11 +18,20 @@ export default {
     extend: {
       fontFamily: {
         sans: [
-          "Inter var",
+          "Inter Variable",
           "Inter",
           "-apple-system",
           "BlinkMacSystemFont",
           "Segoe UI",
+          "system-ui",
+          "sans-serif",
+        ],
+        // Display face for headlines, metric values and the brand — one
+        // distinctive voice over the Inter body.
+        display: [
+          "Space Grotesk Variable",
+          "Space Grotesk",
+          "Inter Variable",
           "system-ui",
           "sans-serif",
         ],

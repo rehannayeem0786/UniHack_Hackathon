@@ -99,7 +99,7 @@ export function Sidebar({
               <Boxes className="size-5" />
             </span>
             <div className="min-w-0">
-              <h1 className="truncate text-[0.9375rem] font-semibold leading-tight tracking-tight">
+              <h1 className="font-display truncate text-[0.9375rem] font-semibold leading-tight tracking-tight">
                 Product Intelligence
               </h1>
               <p className="hidden truncate text-xs text-muted-foreground lg:block">

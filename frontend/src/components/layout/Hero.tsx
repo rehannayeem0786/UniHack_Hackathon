@@ -2,6 +2,7 @@ import { motion, type Variants } from "framer-motion";
 import { Activity, Database, Layers3, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { CountUp } from "@/components/shared/CountUp";
 import type { HealthPayload } from "@/lib/api";
 import { compact } from "@/lib/format";
 
@@ -33,10 +34,13 @@ function StatChip({
   return (
     <motion.div
       variants={item}
-      className="glass flex items-center gap-2.5 rounded-full px-4 py-2"
+      className="glass card-hairline flex items-center gap-2.5 rounded-full px-4 py-2"
     >
       <Icon className="size-3.5 text-primary" aria-hidden />
-      <span className="tabular text-sm font-semibold">{value}</span>
+      <CountUp
+        value={value}
+        className="font-display text-sm font-semibold leading-none"
+      />
       <span className="text-xs text-muted-foreground">{label}</span>
     </motion.div>
   );
@@ -73,7 +77,7 @@ export function Hero({ health }: { health?: HealthPayload }) {
 
         <motion.h2
           variants={item}
-          className="text-balance text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl"
+          className="font-display text-balance text-4xl font-bold leading-[1.08] tracking-tight sm:text-5xl"
         >
           Turn a cryptic catalogue line into a{" "}
           <span className="text-gradient animate-gradient-x">complete product record</span>

@@ -137,6 +137,36 @@
     background-size: 200% auto;
   }
 
+  /*
+   * Hover accent for cards that matter: a one-pixel gradient hairline along
+   * the top edge, fading in with the existing border transition. Purely
+   * decorative, so it must never carry meaning.
+   */
+  .card-hairline {
+    position: relative;
+  }
+  .card-hairline::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--primary) / 0.55),
+      hsl(158 68% 45% / 0.4),
+      transparent
+    );
+    opacity: 0;
+    transition: opacity 300ms ease;
+    pointer-events: none;
+  }
+  .card-hairline:hover::before,
+  .card-hairline:focus-within::before {
+    opacity: 1;
+  }
+
   /* Numeric columns: tabular figures so digits line up down a table. */
   .tabular {
     font-variant-numeric: tabular-nums;

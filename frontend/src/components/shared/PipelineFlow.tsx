@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Check,
@@ -119,6 +120,21 @@ export interface StageState {
   elapsedMs?: number;
 }
 
+/**
+ * Wall-clock ticker that only runs while a stage is active, so the elapsed
+ * readout counts up live. The stream reports elapsed only when a stage ends;
+ * between `start` and `end` we own the number.
+ */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => performance.now());
+  useEffect(() => {
+    if (!active) return;
+    const id = window.setInterval(() => setNow(performance.now()), 120);
+    return () => window.clearInterval(id);
+  }, [active]);
+  return now;
+}
+
 export function PipelineFlow({
   status = "idle",
   activeIndex = -1,
@@ -138,6 +154,20 @@ export function PipelineFlow({
       ? STAGES.length
       : Math.max(activeIndex, 0);
 
+  // When a stage flips to active, remember when we first saw it so the live
+  // elapsed readout has a start point. Cleared when it finishes.
+  const starts = useRef(new Map<string, number>());
+  if (stageStates) {
+    for (const [key, state] of Object.entries(stageStates)) {
+      if (state.status === "active" && !starts.current.has(key)) {
+        starts.current.set(key, performance.now());
+      } else if (state.status !== "active") {
+        starts.current.delete(key);
+      }
+    }
+  }
+  const now = useNow(anyActive);
+
   return (
     <div>
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -155,7 +185,12 @@ export function PipelineFlow({
         ) : null}
       </div>
 
-      <ol className="space-y-2" aria-label="Enrichment pipeline stages">
+      {/*
+       * A timeline rather than a stack of cards: one continuous rail down the
+       * icon column, segmented per stage and coloured by that stage's state,
+       * so progress reads as a single flow from top to bottom.
+       */}
+      <ol className="relative" aria-label="Enrichment pipeline stages">
         {STAGES.map((stage, index) => {
           const live = stageStates?.[stage.key];
           const isDone = live
@@ -165,6 +200,13 @@ export function PipelineFlow({
             ? live.status === "active"
             : status === "active" && index === activeIndex;
           const badge = MODEL_BADGE[stage.model];
+          const startedAt = starts.current.get(stage.key);
+          const elapsedLabel =
+            live?.status === "done" && live.elapsedMs !== undefined
+              ? duration(live.elapsedMs)
+              : isActive && startedAt !== undefined
+                ? duration(now - startedAt)
+                : null;
 
           return (
             <motion.li
@@ -172,23 +214,31 @@ export function PipelineFlow({
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.3, delay: index * 0.05 }}
-              className={cn(
-                "flex gap-3 rounded-lg border p-3 transition-colors duration-300",
-                isActive
-                  ? "border-primary/50 bg-primary/[0.07] shadow-glow"
-                  : isDone
-                    ? "border-success/25 bg-success/[0.04]"
-                    : "border-border/60 bg-surface/40",
-              )}
+              className="group relative flex gap-3.5 rounded-lg p-2.5 transition-colors duration-300 hover:bg-surface/70"
             >
+              {/* Rail segment: from this node's centre to the item's end. */}
+              {index < STAGES.length - 1 ? (
+                <span
+                  aria-hidden
+                  className={cn(
+                    "absolute bottom-0 left-[1.4375rem] top-[calc(0.625rem+1.75rem)] w-px transition-colors duration-500",
+                    isDone
+                      ? "bg-success/50"
+                      : isActive
+                        ? "bg-gradient-to-b from-primary/70 to-primary/20"
+                        : "bg-border",
+                  )}
+                />
+              ) : null}
+
               <div
                 className={cn(
-                  "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border transition-colors duration-300",
+                  "relative z-10 mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border backdrop-blur-sm transition-colors duration-300",
                   isDone
                     ? "border-success/40 bg-success/15 text-success"
                     : isActive
                       ? "animate-pulse-ring border-primary/50 bg-primary/15 text-primary"
-                      : "border-border bg-secondary text-muted-foreground",
+                      : "border-border bg-secondary/80 text-muted-foreground",
                 )}
                 aria-hidden
               >
@@ -201,7 +251,16 @@ export function PipelineFlow({
                 )}
               </div>
 
-              <div className="min-w-0 flex-1 space-y-1">
+              <div
+                className={cn(
+                  "min-w-0 flex-1 space-y-1 rounded-lg border p-3 transition-colors duration-300",
+                  isActive
+                    ? "border-primary/50 bg-primary/[0.07] shadow-glow"
+                    : isDone
+                      ? "border-success/25 bg-success/[0.04]"
+                      : "border-border/60 bg-surface/40",
+                )}
+              >
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-sm font-medium leading-none">
                     <span className="tabular mr-1.5 text-muted-foreground">{index + 1}.</span>
@@ -210,9 +269,14 @@ export function PipelineFlow({
                   <Badge variant={badge.variant} className="text-[0.625rem]">
                     {badge.text}
                   </Badge>
-                  {isDone && live?.elapsedMs !== undefined ? (
-                    <span className="tabular ml-auto text-[0.6875rem] text-muted-foreground">
-                      {duration(live.elapsedMs)}
+                  {elapsedLabel ? (
+                    <span
+                      className={cn(
+                        "tabular ml-auto text-[0.6875rem]",
+                        isActive ? "font-medium text-primary" : "text-muted-foreground",
+                      )}
+                    >
+                      {elapsedLabel}
                     </span>
                   ) : null}
                 </div>

@@ -1,10 +1,11 @@
 import { motion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
+import { HelpCircle } from "lucide-react";
 
+import { CountUp } from "@/components/shared/CountUp";
 import { Card } from "@/components/ui/card";
 import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { HelpCircle } from "lucide-react";
 
 export interface MetricCardProps {
   label: string;
@@ -38,7 +39,7 @@ export function MetricCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: Math.min(index * 0.04, 0.3), ease: [0.16, 1, 0.3, 1] }}
     >
-      <Card className="h-full p-4">
+      <Card className="card-hairline h-full p-4">
         <div className="flex items-start justify-between gap-2">
           <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {label}
@@ -56,9 +57,10 @@ export function MetricCard({
           </p>
           {Icon ? <Icon className={cn("size-4 shrink-0", toneRing[tone])} aria-hidden /> : null}
         </div>
-        <p className="tabular mt-2 text-2xl font-semibold leading-none tracking-tight">
-          {value}
-        </p>
+        <CountUp
+          value={value}
+          className="mt-2 block font-display text-2xl font-semibold leading-none tracking-tight"
+        />
         {detail ? (
           <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{detail}</p>
         ) : null}

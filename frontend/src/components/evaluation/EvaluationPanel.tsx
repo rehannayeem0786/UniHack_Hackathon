@@ -184,6 +184,14 @@ function AccuracyChart({ fields }: { fields: FieldScore[] }) {
       <div className="h-80 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 8, right: 8, bottom: 56, left: -18 }}>
+            <defs>
+              {SERIES.map((series) => (
+                <linearGradient id={`grad-${series.key}`} key={series.key} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={series.color} stopOpacity={1} />
+                  <stop offset="100%" stopColor={series.color} stopOpacity={0.55} />
+                </linearGradient>
+              ))}
+            </defs>
             <CartesianGrid
               strokeDasharray="3 3"
               stroke="hsl(220 28% 20%)"
@@ -211,8 +219,8 @@ function AccuracyChart({ fields }: { fields: FieldScore[] }) {
                 key={series.key}
                 dataKey={series.key}
                 name={series.label}
-                radius={[3, 3, 0, 0]}
-                fill={series.color}
+                radius={[4, 4, 0, 0]}
+                fill={`url(#grad-${series.key})`}
               />
             ))}
           </BarChart>
