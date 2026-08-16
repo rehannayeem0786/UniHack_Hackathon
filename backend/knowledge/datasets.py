@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from backend.config import settings
-from backend.core.normalize import clean, repair_symbols
+from backend.core.normalize import clean, repair_symbols, strip_condition
 from backend.core.schema import INPUT_COLUMNS, ProductRecord
 
 INPUT_FILE = "Unilog_Input_200_Items.xlsx"
@@ -111,7 +111,10 @@ def to_record(row: pd.Series) -> ProductRecord:
         dept=get("Dept"),
         **{"class": get("Class")},
         fine=get("Fine"),
-        raw_description=get("Part_Desc"),
+        # The verbatim description (condition suffix and all) is preserved in
+        # `source_row` for the echo columns; the working copy drops the listing
+        # condition so no enriched field can inherit "Display Only" and such.
+        raw_description=strip_condition(get("Part_Desc")),
         raw_mpn=get("Mfg_Part_Num"),
         raw_manufacturer=get("Part_Manuf"),
         brand_hints=[h for h in hints if h],

@@ -33,6 +33,9 @@ from backend.sourcing.fetch import get_fetcher
 logger = logging.getLogger(__name__)
 
 ProgressHook = Callable[[int, int, ProductRecord], None]
+# (stage, event, record, elapsed_ms): fired as each stage starts and ends, so
+# a UI can light up the agents in real time instead of guessing at progress.
+StageHook = Callable[[str, str, ProductRecord, float], None]
 
 STAGES: tuple[str, ...] = (
     "classifier",
@@ -74,6 +77,8 @@ class PipelineResult:
         return sum(1 for r in self.records if r.citations)
 
     def summary(self) -> dict:
+        from backend.llm.pricing import estimate_cost
+
         total = len(self.records) or 1
         confidences = [r.confidence.get("overall", 0.0) for r in self.records]
         grounded = sum(r.grounded_count for r in self.records)
@@ -88,6 +93,8 @@ class PipelineResult:
             "total_issues": sum(len(r.issues) for r in self.records),
             "stage_failures": self.stage_failures,
             "llm": self.usage,
+            # The business story: what this run cost, and what the cache saved.
+            "cost": estimate_cost(self.usage, len(self.records)),
             # Retrieval reach and how much of the output it actually underwrites.
             "sourced_records": self.sourced_count,
             "sourced_rate": round(self.sourced_count / total, 3),
@@ -96,6 +103,36 @@ class PipelineResult:
             "grounded_rate": round(grounded / filled, 3) if filled else 0.0,
             "retrieval": self.retrieval,
         }
+
+
+def _usage_delta(before: dict, after: dict) -> dict:
+    """Attribute only this run's LLM activity, from two gateway snapshots.
+
+    Counters are cumulative across the process, so a naive snapshot would bill
+    every earlier run against the current one. The delta keeps the same shape
+    as a snapshot so downstream consumers (summary, cost, the UI) are unchanged.
+    """
+    by_model = {
+        model: count - before.get("by_model", {}).get(model, 0)
+        for model, count in after.get("by_model", {}).items()
+    }
+    by_model = {model: count for model, count in by_model.items() if count > 0}
+    live = after.get("live_calls", 0) - before.get("live_calls", 0)
+    calls = after.get("calls", 0) - before.get("calls", 0)
+    cache_hits = after.get("cache_hits", 0) - before.get("cache_hits", 0)
+    return {
+        "calls": calls,
+        "cache_hits": cache_hits,
+        "live_calls": live,
+        "failures": after.get("failures", 0) - before.get("failures", 0),
+        "total_tokens": after.get("total_tokens", 0) - before.get("total_tokens", 0),
+        "avg_latency_s": after.get("avg_latency_s", 0.0),
+        # This run's rate, not the process-wide one, so a fully cached re-run
+        # reports 100% even if earlier runs were live.
+        "cache_hit_rate": round(cache_hits / calls, 3) if calls else 0.0,
+        "by_model": by_model,
+        "exhausted_models": after.get("exhausted_models", []),
+    }
 
 
 class EnrichmentPipeline:
@@ -121,7 +158,12 @@ class EnrichmentPipeline:
         self._failures: dict[str, int] = {}
 
     # -- single record --
-    def enrich(self, record: ProductRecord) -> ProductRecord:
+    def enrich(
+        self,
+        record: ProductRecord,
+        *,
+        stage_hook: StageHook | None = None,
+    ) -> ProductRecord:
         """Run every stage, isolating failures to the stage that caused them."""
         stages: Sequence[tuple[str, Callable[[ProductRecord], ProductRecord]]] = (
             ("classifier", self.classifier.run),
@@ -134,6 +176,12 @@ class EnrichmentPipeline:
             ("corrections", self.corrections.apply),
         )
         for name, run in stages:
+            started = time.perf_counter()
+            if stage_hook:
+                try:
+                    stage_hook(name, "start", record, 0.0)
+                except Exception:  # noqa: BLE001 - observers never break the run
+                    logger.exception("stage hook failed for %s", name)
             try:
                 record = run(record)
             except Exception as exc:  # noqa: BLE001 - keep the batch alive
@@ -141,6 +189,11 @@ class EnrichmentPipeline:
                 record.issues.append(f"stage {name} failed: {type(exc).__name__}")
                 record.needs_review = True
                 self._failures[name] = self._failures.get(name, 0) + 1
+            if stage_hook:
+                try:
+                    stage_hook(name, "end", record, (time.perf_counter() - started) * 1000)
+                except Exception:  # noqa: BLE001
+                    logger.exception("stage hook failed for %s", name)
 
         # Release the retrieved document text once every stage has read it.
         # Citations, spec tables and grounding decisions are already recorded;
@@ -156,6 +209,7 @@ class EnrichmentPipeline:
         *,
         progress: ProgressHook | None = None,
         max_workers: int | None = None,
+        stage_hook: StageHook | None = None,
     ) -> PipelineResult:
         items = list(records)
         total = len(items)
@@ -163,10 +217,17 @@ class EnrichmentPipeline:
         started = time.perf_counter()
         self._failures = {}
 
+        # The gateway's counters are process-wide, so snapshot before and after
+        # to attribute only this run's calls, tokens and cache hits to it.
+        before = self.llm.stats.snapshot()
+
         # Preserve input order in the output regardless of completion order.
         done: dict[int, ProductRecord] = {}
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(self.enrich, rec): i for i, rec in enumerate(items)}
+            futures = {
+                pool.submit(self.enrich, rec, stage_hook=stage_hook): i
+                for i, rec in enumerate(items)
+            }
             for completed, future in enumerate(as_completed(futures), start=1):
                 index = futures[future]
                 try:
@@ -180,10 +241,13 @@ class EnrichmentPipeline:
                 if progress:
                     progress(completed, total, done[index])
 
+        after = self.llm.stats.snapshot()
+        usage = _usage_delta(before, after)
+
         return PipelineResult(
             records=[done[i] for i in range(total)],
             elapsed_seconds=time.perf_counter() - started,
-            usage=self.llm.stats.snapshot(),
+            usage=usage,
             stage_failures=dict(self._failures),
             retrieval=get_fetcher().stats.snapshot(),
         )

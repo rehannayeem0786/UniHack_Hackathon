@@ -166,3 +166,54 @@ class TestInvoice:
 
     def test_truncate_clean_does_not_cut_mid_word(self):
         assert truncate_clean("stainless steel dishwasher", 12).endswith(("steel", "stainless"))
+
+
+class TestConditionStripping:
+    """Distributor condition suffixes must never reach an enriched field."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("PDSH4816AF Dishwasher SS - Display Only", "PDSH4816AF Dishwasher SS"),
+            ("MVWP586GW Washer Wh - Display", "MVWP586GW Washer Wh"),
+            ("WDTS7024RZ Dishwasher SS (Refurbished)", "WDTS7024RZ Dishwasher SS"),
+            ("Drill Kit - Open Box", "Drill Kit"),
+            ("Saw Blade – Floor Model", "Saw Blade"),
+        ],
+    )
+    def test_condition_suffix_is_removed(self, raw, expected):
+        from backend.core.normalize import strip_condition
+
+        assert strip_condition(raw) == expected
+
+    def test_descriptions_without_a_condition_are_untouched(self):
+        from backend.core.normalize import strip_condition
+
+        assert strip_condition("PDD415PYYFS GE Dishwasher SS") == "PDD415PYYFS GE Dishwasher SS"
+        # "Display" mid-string is part of the product, not a condition.
+        assert strip_condition("LED Display Panel 24 in") == "LED Display Panel 24 in"
+
+    def test_to_record_strips_condition_but_echoes_verbatim(self):
+        import pandas as pd
+
+        from backend.knowledge.datasets import to_record
+
+        row = pd.Series(
+            {
+                "PART_NUMBER": "1",
+                "SKU - MY_PART_NUMBER": "2",
+                "Dept": "Appliances",
+                "Class": "Large Appliances",
+                "Fine": "Dishwashers",
+                "Part_Desc": "PDSH4816AF Dishwasher SS - Display Only",
+                "Mfg_Part_Num": "PDSH4816AF",
+                "Part_Manuf": "Some Co-op",
+                "E1_Brand": "-- Unbranded --",
+                "Unilog_Brand": "-- No Unilog Brand --",
+                "DIB_Brand": "-- No DIB Brand --",
+            }
+        )
+        record = to_record(row)
+        assert record.raw_description == "PDSH4816AF Dishwasher SS"
+        # The delivery echo column keeps exactly what the distributor supplied.
+        assert record.source_row["Part_Desc"] == "PDSH4816AF Dishwasher SS - Display Only"

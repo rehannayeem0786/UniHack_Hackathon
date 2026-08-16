@@ -83,13 +83,20 @@ class AttributeAgent:
         self.llm = llm
 
     def run(self, record: ProductRecord) -> ProductRecord:
+        # Certifications do not depend on the attribute template, so they are
+        # read off the retrieved source up front: even a record with no
+        # template still gets the Standard/Approvals its own spec sheet states.
+        self._approvals_from_evidence(record, record.evidence)
+
         if not record.classpath:
             record.issues.append("cannot extract attributes without a classpath")
+            self._approvals_from_brand(record)
             return record
 
         template = self.kb.taxonomy.template_for(record.classpath)
         if not template:
             record.issues.append(f"no attribute template for {record.classpath}")
+            self._approvals_from_brand(record)
             return record
 
         spec_lines, constrained = self._build_spec(record.classpath, template)
@@ -120,6 +127,7 @@ class AttributeAgent:
 
         if result:
             self._absorb_extras(record, result)
+        self._approvals_from_brand(record)
         return record
 
     # -- prompt construction --
@@ -326,4 +334,57 @@ class AttributeAgent:
                 )
                 if best and best[1] >= 90:
                     kept.append(best[0])
-        record.approvals = sorted(dict.fromkeys(kept))
+        # Merge over whatever the evidence scan already wrote, so the model's
+        # answer supplements the source rather than replacing it.
+        record.approvals = sorted(dict.fromkeys([*record.approvals, *kept]))
+
+    def _approvals_from_evidence(self, record: ProductRecord, bundle: Any) -> None:
+        """Add certifications the retrieved first-party source states verbatim.
+
+        The reference output fills Standard/Approvals far more often than the
+        model echoes a certification back, and the manufacturer's own spec
+        sheet routinely lists them outright ("UL Listed", "ENERGY STAR
+        Certified"). So every approval in the learned vocabulary that appears
+        verbatim in the retrieved evidence is copied across with its citation —
+        reading, not guessing. Tokens outside the vocabulary are still refused,
+        which is what keeps the field free of invented certifications.
+        """
+        if not bundle or not self.kb.approvals:
+            return
+        known = {a.casefold() for a in record.approvals}
+        added: list[str] = []
+        source_url = ""
+        for token in self.kb.approvals:
+            if token.casefold() in known:
+                continue
+            document = bundle.supports(token, minimum=4)
+            if document is None:
+                continue
+            added.append(token)
+            known.add(token.casefold())
+            source_url = source_url or document.url
+        if not added:
+            return
+        record.approvals = sorted(dict.fromkeys([*record.approvals, *added]))
+        record.grounded["Standard/Approvals"] = source_url
+        record.provenance["approvals"] = (
+            f"{len(added)} certification(s) read verbatim from a first-party source"
+        )
+
+    def _approvals_from_brand(self, record: ProductRecord) -> None:
+        """Fall back on the brand's learned certification convention.
+
+        Applied only when neither the retrieved source nor the model produced
+        anything, so it fills gaps rather than overriding grounded values. The
+        convention itself is learned in `KnowledgeBase.fit` under a strict
+        dominance bar, so this is a brand-level fact (like brand->manufacturer)
+        rather than an invention.
+        """
+        if record.approvals:
+            return
+        prior = self.kb.brand_approvals.get(record.brand_name or "")
+        if prior:
+            record.approvals = list(prior)
+            record.provenance["approvals"] = (
+                "brand-level convention learned from the labelled catalogue"
+            )

@@ -479,6 +479,11 @@ class KnowledgeBase:
         default_factory=lambda: ClasspathRetriever()
     )
     approvals: list[str] = field(default_factory=list)
+    # Brand -> the approval set that dominates that brand's labelled rows.
+    # Only stored when one set wins on >= 80% of >= 3 rows, so it is a learned
+    # brand convention (like brand->manufacturer), never a guess. Applied to
+    # records whose own source did not state any certification.
+    brand_approvals: dict[str, list[str]] = field(default_factory=dict)
     fitted_rows: int = 0
 
     # -- construction --
@@ -500,6 +505,9 @@ class KnowledgeBase:
         approvals: Counter = Counter()
         template_votes: dict[str, Counter] = defaultdict(Counter)
         brand_form_votes: dict[str, Counter] = defaultdict(Counter)
+        # One approval-set observation per labelled row, grouped by brand, so a
+        # brand's dominant certification set can be learned below.
+        brand_approval_sets: dict[str, list[frozenset[str]]] = defaultdict(list)
 
         for _, row in frame.iterrows():
             classpath = _cell(row, "Classpath")
@@ -563,6 +571,15 @@ class KnowledgeBase:
                 if token:
                     approvals[token] += 1
 
+            if brand:
+                brand_approval_sets[brand].append(
+                    frozenset(
+                        t.strip()
+                        for t in _cell(row, "Standard/Approvals").split("|")
+                        if t.strip()
+                    )
+                )
+
         # Resolve each brand string to its most common canonical form, and
         # remember which strings were never decisive.
         manufacturers.brand_forms = {
@@ -573,6 +590,21 @@ class KnowledgeBase:
         }
 
         _fit_brand_signals(frame, manufacturers)
+
+        # Learn each brand's dominant certification set. The bar is deliberately
+        # high — one set on >= 80% of >= 3 rows — so only a genuine brand
+        # convention is stored (United Window & Door rows all carry the same
+        # ENERGY STAR/NFRC pair). A brand whose rows disagree is left out, and an
+        # empty dominant set is never stored: filling a blank the reference left
+        # blank would be worse than leaving it.
+        brand_approvals: dict[str, list[str]] = {}
+        for brand, sets in brand_approval_sets.items():
+            if len(sets) < 3:
+                continue
+            top, count = Counter(sets).most_common(1)[0]
+            if not top or count / len(sets) < 0.8:
+                continue
+            brand_approvals[brand] = sorted(top)
 
         # The winning template per classpath is the longest common ordering;
         # take the most frequent, then union in any labels it missed.
@@ -593,6 +625,7 @@ class KnowledgeBase:
             assets=AssetRegistry.fit(frame),
             retrieval=ClasspathRetriever.fit(frame),
             approvals=[a for a, _ in approvals.most_common()],
+            brand_approvals=brand_approvals,
             fitted_rows=len(frame),
         )
 

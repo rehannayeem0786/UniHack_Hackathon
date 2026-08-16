@@ -30,6 +30,35 @@ def clean(value: str | None) -> str:
     return "" if is_placeholder(text) else text
 
 
+# --- Condition hints ----------------------------------------------------------
+# Distributors append the *listing* condition to the description — a floor
+# model, a refurbished unit — but the Expected Output describes the product
+# itself and has no Condition column, so these suffixes must not reach any
+# enriched field. They are stripped at the source (see `to_record`) rather than
+# patched out of each description afterwards, which is the only way to be sure
+# no fallback path re-introduces them. A leading separator is required, so a
+# genuine product named "Display" is never touched.
+_CONDITION_RE = re.compile(
+    r"\s*[-–—(]\s*\b(?:display\s+only|display|refurbished|refurb|open\s+box|"
+    r"used|reconditioned|floor\s+model|demo\s+unit|as[\s-]?is|clearance|"
+    r"scratch\s*(?:and|&)\s*dent)s?\b\s*\)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_condition(value: str | None) -> str:
+    """Drop a trailing distributor condition suffix from a raw description.
+
+    `PDSH4816AF Dishwasher SS - Display Only` -> `PDSH4816AF Dishwasher SS`.
+    Returns a cleaned string; only an unambiguous trailing suffix is removed.
+    """
+    text = clean(value)
+    if not text:
+        return ""
+    stripped = _CONDITION_RE.sub("", text)
+    return stripped.strip(" \t-–—(").strip()
+
+
 # --- Trademark symbols ------------------------------------------------------
 # Brand names must match the approved list exactly, symbols included, so the
 # only repair applied is for genuine UTF-8-read-as-cp1252 double encoding

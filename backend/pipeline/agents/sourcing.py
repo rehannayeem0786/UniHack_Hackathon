@@ -26,6 +26,7 @@ from backend.knowledge.assets import (
     slugify_asset,
 )
 from backend.knowledge.registry import KnowledgeBase
+from backend.sourcing.policy import official_domain
 
 # Attribute labels that carry an axis-labelled dimension string.
 _SIZE_LABELS: tuple[str, ...] = ("size", "dimensions", "overall dimensions")
@@ -65,6 +66,13 @@ class SourcingAgent:
         if record.mfr_url:
             return  # a retrieved, part-number-confirmed page already won
         domain = self.kb.assets.domain_for(brand, manufacturer)
+        if not domain:
+            # Fall back to the seeded official-domain registry so brands that
+            # are known to the policy layer but absent from the training fold
+            # still get a source URL rather than leaving the row unsourced.
+            seeded = official_domain(brand, manufacturer)
+            if seeded:
+                domain = f"https://{seeded}"
         if not domain:
             return
         record.mfr_url = domain
