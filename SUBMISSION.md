@@ -9,9 +9,26 @@ is measured on the 66-row holdout fold and reproducible with
 ## Slide 2 — Team Details
 
 ```
-a. Team name:        <fill in>
-b. Team leader name: <fill in>
+a. Team name:        Unilog Product Intelligence
+b. Team leader name: Rehan
 ```
+
+---
+
+## Deliverables in this repository
+
+| Deliverable | Where | Produced by |
+|---|---|---|
+| Working software (code + architecture) | `backend/`, `frontend/`, `scripts/` | — |
+| Enriched dataset, all 200 rows, exact delivery format | `runs/delivery-all-*.xlsx` (newest) | `python scripts/run_pipeline.py --fold all --export` |
+| Evaluation report (accuracy, coverage, compliance) | `docs/Evaluation_Report.pdf` | `python scripts/build_report.py` |
+| Submission deck (official template, screenshots embedded) | `docs/UniHack_2026_Unilog_Product_Intelligence.pptx` | `python scripts/build_deck.py` |
+| Dashboard screenshots | `docs/shots/*.png` | `node frontend/shots.mjs` (service on :8000) |
+| Schema compliance gate | `python scripts/verify_schema.py` | asserts 252/252 headers, exits non-zero on drift |
+| Test suite | `python -m pytest tests -q` | 182 tests, no network, no API key |
+
+Everything above is reproducible from a clean checkout with an API key for
+Groq or Gemini.
 
 ---
 
@@ -190,8 +207,8 @@ and throughput scales linearly with worker count. Every stage is
 failure-isolated — a broken row records an issue and continues rather than
 aborting the batch. Responses are cached on disk by prompt hash, so re-runs are
 free and deterministic (66 rows in 3.8 s). Four of eight stages and every
-retrieval hit cost nothing; the largest live model bill measured for the fold
-is 47,360 tokens (~720 per row) — a fraction of a cent.
+retrieval hit cost nothing; the live model bill for the fold was 11,327 tokens
+(~170 per row), 47,360 worst case cold-cache — a fraction of a cent.
 
 **Rate limits are survivable, not fatal.** During the first web-enabled run
 **four models hit their rate limits** — `gemini-3.6-flash`, `llama-3.3-70b`,
@@ -437,9 +454,11 @@ controlled vocabulary exists.
 **Prototype: ₹0.** Built entirely on free tiers (Groq + Gemini) and open-source
 libraries.
 
-**Measured usage:** the largest live model bill for the 66-row fold is 47,360
-tokens ≈ **720 tokens/row** (most calls are answered from the disk cache; the
-five scored description surfaces are built by formula and cost nothing).
+**Measured usage:** 161 model calls for 66 rows. On the scored run, 149 of them
+were answered from the disk cache and the live bill was 11,327 tokens (~170 per
+row); the worst-case cold-cache bill measured on the same fold is 47,360 tokens
+(~720 per row). The table below uses the conservative cold-cache figure. The
+five scored description surfaces are built by formula and cost nothing.
 
 | Catalogue size | Tokens | Indicative cost* |
 |---|---:|---:|
@@ -460,23 +479,26 @@ actually need judgement.
 
 ## Slide 12 — Snapshots of the MVP
 
-Capture these six (run `python scripts/serve.py`, open http://127.0.0.1:8000):
+All six are already captured in `docs/shots/` by `node frontend/shots.mjs`
+(with the service running on http://127.0.0.1:8000):
 
-1. **Enrich — input vs output.** Raw cryptic line + placeholders on the left,
-   resolved identity with `®` intact on the right. The single most persuasive
-   screenshot.
-2. **Enrich — five description surfaces.** Shows all five cards with green
-   character-limit badges, and one expanded against the human reference.
-3. **Enrich — attributes + provenance.** Attribute grid with `source` and
-   confidence meters, provenance panel showing `mpn-prefix:DR7` and a
-   `spec-table:<url>` citation.
-4. **Review queue.** A flagged row with the accept/override editor — the
-   human-in-the-loop step whose decisions replay as the final pipeline stage.
-5. **Evaluation — chart + scores.** Field accuracy chart, headline metrics, and
-   the compliance list at 100%.
-6. **Learned rules.** The mined grammar for Electrical Box Covers, showing
-   `cover type → <value> Cover` and `length → <value> L`. This is the "we didn't
-   hardcode it" proof.
+1. **Enrich — input vs output** → `03-input-vs-output.png`. Raw cryptic line +
+   placeholders on the left, resolved identity with `®` intact on the right.
+   The single most persuasive screenshot.
+2. **Enrich — five description surfaces** → `04-surfaces.png`. All five cards
+   with green character-limit badges, and one expanded against the human
+   reference.
+3. **Enrich — attributes + provenance** → `06-provenance.png`. Attribute grid
+   with `source` and confidence meters, provenance panel showing
+   `mpn-prefix:DR7` and a `spec-table:<url>` citation.
+4. **Review queue** → `11-review.png`. A flagged row with the accept/override
+   editor — the human-in-the-loop step whose decisions replay as the final
+   pipeline stage.
+5. **Evaluation — chart + scores** → `07-evaluation.png` + `08-chart.png`.
+   Field accuracy chart, headline metrics, and the compliance list at 100%.
+6. **Learned rules** → `09-learned-rules.png`. The mined grammar for Electrical
+   Box Covers, showing `cover type → <value> Cover` and `length → <value> L`.
+   This is the "we didn't hardcode it" proof.
 
 Also worth including: the terminal output of `scripts/verify_schema.py` showing
 **252/252 headers, PASS**.
@@ -519,15 +541,18 @@ Also worth including: the terminal output of `scripts/verify_schema.py` showing
 ## Slide 14 — Links
 
 ```
-1. GitHub Public Repository:  <create and paste>
-2. Demo Video Link (3 min):   <record and paste>
+1. GitHub Public Repository:  <create repo, push, paste URL here>
+2. Demo Video Link (3 min):   <record following the script below, paste URL>
 3. Working Prototype Link:    <deploy, or note "run locally: python scripts/serve.py">
 ```
 
-> ⚠️ **This workspace is not a git repository yet.** A public GitHub repo is a
-> submission requirement. `.gitignore` is already correct (it excludes `.env`,
-> `.venv/`, `node_modules/`, `.cache/`, `runs/`). **Confirm `.env` is not
-> committed — it holds live API keys.**
+> The repository is initialised and committed (`.env`, `.venv/`, `node_modules/`,
+> `.cache/`, `runs/` are git-ignored — verify with `git ls-files | grep .env`
+> returning nothing before the first push). Remaining human steps, in order:
+>
+> 1. `gh repo create unilog-product-intelligence --public --source=. --push`
+> 2. Record the 3-minute demo (script below; the service + dashboard are the props).
+> 3. Paste both URLs into slide 13 of `docs/UniHack_2026_Unilog_Product_Intelligence.pptx`.
 
 ### Suggested 3-minute demo video script
 

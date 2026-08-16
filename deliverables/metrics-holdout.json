@@ -1,0 +1,174 @@
+{
+  "pipeline": {
+    "records": 66,
+    "elapsed_seconds": 91.9,
+    "seconds_per_record": 1.39,
+    "needs_review": 8,
+    "review_rate": 0.121,
+    "mean_confidence": 0.712,
+    "total_issues": 25,
+    "stage_failures": {},
+    "llm": {
+      "calls": 161,
+      "cache_hits": 149,
+      "live_calls": 12,
+      "failures": 0,
+      "total_tokens": 11327,
+      "avg_latency_s": 2.3,
+      "cache_hit_rate": 0.925,
+      "by_model": {
+        "groq:llama-3.3-70b-versatile": 12
+      },
+      "exhausted_models": []
+    },
+    "sourced_records": 14,
+    "sourced_rate": 0.212,
+    "documents_read": 22,
+    "grounded_attributes": 88,
+    "grounded_rate": 0.26,
+    "retrieval": {
+      "requests": 122,
+      "cache_hits": 0,
+      "live_requests": 122,
+      "failures": 85,
+      "blocked_by_policy": 0,
+      "robots_denied": 0,
+      "megabytes": 68.27,
+      "avg_latency_s": 2.96,
+      "cache_hit_rate": 0.0
+    }
+  },
+  "metrics": {
+    "rows": 66,
+    "fields": [
+      {
+        "field": "MANUFACTURER_NAME",
+        "compared": 66,
+        "exact_match": 0.894,
+        "fuzzy_match": 0.924,
+        "mean_similarity": 0.944,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "BRAND_NAME",
+        "compared": 66,
+        "exact_match": 0.894,
+        "fuzzy_match": 0.924,
+        "mean_similarity": 0.942,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "MANUFACTURER_PART_NUMBER",
+        "compared": 66,
+        "exact_match": 1.0,
+        "fuzzy_match": 1.0,
+        "mean_similarity": 1.0,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "Classpath",
+        "compared": 66,
+        "exact_match": 0.742,
+        "fuzzy_match": 0.758,
+        "mean_similarity": 0.965,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "Product Name",
+        "compared": 66,
+        "exact_match": 0.47,
+        "fuzzy_match": 0.727,
+        "mean_similarity": 0.879,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "MOBILE_DESC",
+        "compared": 66,
+        "exact_match": 0.045,
+        "fuzzy_match": 0.5,
+        "mean_similarity": 0.811,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "INVOICE_DESC",
+        "compared": 66,
+        "exact_match": 0.0,
+        "fuzzy_match": 0.5,
+        "mean_similarity": 0.772,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "SHORT_DESC",
+        "compared": 66,
+        "exact_match": 0.0,
+        "fuzzy_match": 0.606,
+        "mean_similarity": 0.876,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "LONG_DESC1",
+        "compared": 66,
+        "exact_match": 0.0,
+        "fuzzy_match": 0.697,
+        "mean_similarity": 0.886,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "RETAIL_DESC",
+        "compared": 66,
+        "exact_match": 0.0,
+        "fuzzy_match": 0.636,
+        "mean_similarity": 0.851,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      }
+    ],
+    "headline": {
+      "mean_exact_match": 0.404,
+      "mean_fuzzy_match": 0.727
+    },
+    "attributes": {
+      "labels_emitted": 1397,
+      "label_precision": 0.932,
+      "values_compared": 288,
+      "value_accuracy": 0.597
+    },
+    "compliance": {
+      "invoice_within_40_chars": 1.0,
+      "invoice_all_caps": 1.0,
+      "mobile_within_60_80_chars": 1.0,
+      "unit_spacing_correct": 1.0,
+      "fractions_not_decimals": 1.0
+    },
+    "coverage": {
+      "cells_filled": 3879,
+      "truth_cells_filled": 5455,
+      "fill_ratio_vs_truth": 0.711
+    },
+    "sourcing": {
+      "records": 66,
+      "records_with_a_source": 14,
+      "sourced_rate": 0.212,
+      "records_with_verified_source": 14,
+      "documents_read": 22,
+      "documents_by_kind": {
+        "product-page": 14,
+        "manual": 8
+      },
+      "deep_product_links": 14,
+      "deep_link_rate": 0.212,
+      "filled_attribute_values": 338,
+      "grounded_values": 88,
+      "grounded_rate": 0.26
+    }
+  }
+}

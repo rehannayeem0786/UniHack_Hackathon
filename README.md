@@ -30,11 +30,11 @@ every machine and cannot be tuned. Reproduce with
 |---|---:|---:|---:|
 | `MANUFACTURER_PART_NUMBER` | **100%** | 100% | 100% |
 | `MANUFACTURER_NAME` | **89%** | 92% | 94% |
-| `BRAND_NAME` | **89%** | 92% | 94% |
+| `BRAND_NAME` | **89%** | 91% | 93% |
 | `Classpath` | **74%** | 76% | 96% |
 | `Product Name` | 47% | 73% | 88% |
-| `LONG_DESC1` | 0% | 70% | 89% |
-| `SHORT_DESC` | 0% | 61% | 88% |
+| `LONG_DESC1` | 0% | 70% | 88% |
+| `SHORT_DESC` | 0% | 62% | 87% |
 | `RETAIL_DESC` | 0% | 64% | 85% |
 | `MOBILE_DESC` | 5% | 50% | 81% |
 | `INVOICE_DESC` | 0% | 50% | 77% |
@@ -52,14 +52,30 @@ every machine and cannot be tuned. Reproduce with
 |---|---:|
 | Delivery headers matching the Expected Output sheet | **252 / 252**, exact |
 | Columns populated | **148 / 252** |
-| Schema coverage vs. what a human filled | **71.1%** of the cells a human filled |
+| Schema coverage vs. what a human filled | **71.2%** of the cells a human filled |
 | Attribute label precision | **93.2%** (1,397 labels emitted) |
-| Attribute value accuracy | 59.7% |
-| Rows flagged for human review | 12% (8 of 66) |
+| Attribute value accuracy | 59.8% |
+| Rows flagged for human review | 11% (7 of 66) |
 | Throughput, scored run | 1.4 s/row wall clock (66 rows in 92 s, 6 concurrent, live web retrieval) |
-| Throughput, cached re-run | 0.06 s/row (66 rows in 3.8 s) |
-| Model calls, cold | 161 calls, 47,360 tokens live, **0 failures** |
+| Throughput, cached re-run | 0.02 s/row (66 rows in 1.4 s) |
+| Model calls | 161 calls, **0 failures** — 11,327 live tokens (92.5% cache-hit); 47,360 worst case cold-cache |
 | Models rate-limited mid-run and recovered from | 4 |
+
+### The delivered artefact — all 200 rows
+
+The submitted workbook (`runs/delivery-all-*.xlsx`, produced by
+`python scripts/run_pipeline.py --fold all --export`) enriches every input row
+in the exact 252-column delivery format. On the full catalogue — in-sample for
+134 rows, quoted for the artefact rather than as a skill estimate — the
+identity fields score **99% / 95% / 95% / 91.5%** (MPN / manufacturer / brand /
+classpath), mean fuzzy match is **84.9%**, coverage **79.4%** of human-filled
+cells, and all five house rules hold at **100%**. The holdout table above
+remains the honest out-of-sample measurement.
+
+Two further deliverables are generated, not hand-made:
+`docs/Evaluation_Report.pdf` (`python scripts/build_report.py`) and the
+submission deck with live screenshots embedded
+(`python scripts/build_deck.py`).
 
 ### Traceability — what retrieval added
 
@@ -97,7 +113,7 @@ own product pages and installation manuals — and feeds the verified
 specifications into attribute extraction. Where a first-party page is found,
 values are grounded verbatim against the URL they came from. Where it is not,
 the pipeline reproduces the *structure, ordering and house style* correctly
-(85–89% token similarity) while the *content* stays bounded by what the input
+(77–88% token similarity) while the *content* stays bounded by what the input
 actually contains. It does not paper over the gap by inventing plausible
 specifications, because the brief is explicit that a fluent description made of
 invented values scores zero. Gaps are surfaced as unfilled attributes and
@@ -105,6 +121,19 @@ review flags instead.
 
 The four identity fields are where the input *does* carry enough signal, and
 that is where accuracy is high: **100% / 89% / 89% / 74%**.
+
+---
+
+## Screenshots
+
+| | |
+|---|---|
+| Input vs resolved identity | Five description surfaces |
+| ![input vs output](docs/shots/03-input-vs-output.png) | ![surfaces](docs/shots/04-surfaces.png) |
+| Provenance for every decision | Human-in-the-loop review queue |
+| ![provenance](docs/shots/06-provenance.png) | ![review](docs/shots/11-review.png) |
+| Evaluation on the holdout fold | Learned house-style rules |
+| ![evaluation](docs/shots/07-evaluation.png) | ![learned rules](docs/shots/09-learned-rules.png) |
 
 ---
 
@@ -231,7 +260,7 @@ The tail of the schema needs three different levels of caution, and
 - **Legal text is copied, never guessed.** Warranty, country of origin and the
   Prop 65 notice are reused only where the brand matches.
 
-This is the bulk of the coverage gain: **57% → 71.1%**.
+This is the bulk of the coverage gain: **57% → 71.2%**.
 
 ### 6. The evaluation is built to be hard to fool
 
@@ -252,7 +281,7 @@ different questions:
 
 ### 7. The reviewer teaches the system
 
-Confidence scores and `needs_review` flags route 12% of rows to a human. The
+Confidence scores and `needs_review` flags route 11% of rows to a human. The
 **Review** tab is where that loop closes: a reviewer accepts or overrides any
 value, and each decision is appended to a JSONL store keyed by part number. On
 every subsequent run the pipeline replays those decisions as its **final stage**,
@@ -299,6 +328,7 @@ backend/
   llm/
     providers.py             Groq + Gemini, error classification
     client.py                model-chain fallback, disk cache, usage stats
+    pricing.py               token usage → estimated USD + cache savings
   sourcing/
     policy.py                who may be read — fail-closed domain allow-list
     discovery.py             locating a first-party URL for a part number
@@ -313,8 +343,11 @@ backend/
   api/                       FastAPI service + job registry + review queue
 frontend/                    React + TypeScript + Tailwind + Radix dashboard
 scripts/                     run_pipeline, build_kb, serve, audit_brands,
-                             inspect_rows, show_style, check_env, list_models
-tests/                       157 tests, no network, no API key
+                             inspect_rows, show_style, check_env, list_models,
+                             bench_models, diagnose_gaps, verify_schema,
+                             build_report (evaluation PDF), build_deck (submission
+                             deck with embedded screenshots)
+tests/                       182 tests, no network, no API key
 ```
 
 **A note on the reference pack.** The official
@@ -357,12 +390,14 @@ cd ..
 python scripts/serve.py           # http://127.0.0.1:8000
 ```
 
-Five views: **Enrich** one held-out row and inspect every field's provenance and
-its retrieved first-party sources; **Batch** a fold or an uploaded catalogue and
-download the 252-column workbook; **Review** the human-in-the-loop queue — accept
-or override any value and the decision is replayed on every future run;
-**Evaluation** for the holdout scores and the traceability card; **Learned rules**
-to read the mined grammar and lookup tables.
+Six views: **Enrich** one held-out row and watch the eight agents light up live
+(server-sent events) while inspecting every field's provenance and its retrieved
+first-party sources; **Batch** a fold or an uploaded catalogue and download the
+252-column workbook; **Review** the human-in-the-loop queue — accept or override
+any value and the decision is replayed on every future run; **Evaluation** for
+the holdout scores and the traceability card; **Economics** for the estimated
+cost per record and what the disk cache saves at scale; **Learned rules** to
+read the mined grammar and lookup tables.
 
 For frontend development, `npm run dev` on port 5173 proxies `/api` to the
 service, so run both.
@@ -423,13 +458,14 @@ hardcoded).
 ### Cost and scale
 
 The scored holdout run is 66 rows in 92 seconds — 1.4 s/row at 6 concurrent
-workers, including live first-party web retrieval — using 161 calls of which the
-largest live bill is 47,360 tokens (most calls are answered from the disk
-cache). On the free tiers that is £0; at typical small-model pricing it is a
-fraction of a cent per row.
+workers, including live first-party web retrieval — using 161 calls, 149 of
+them answered from the disk cache. The live bill was 11,327 tokens (~170 per
+row); the worst-case cold-cache bill measured on the same fold is 47,360 tokens
+(~720 per row). On the free tiers that is £0; at typical small-model pricing it
+is a fraction of a cent per row.
 
 Responses are then cached on disk by prompt hash, so re-running a fold is free
-and deterministic and drops to 0.06 s/row (66 rows in 3.8 s). Four of eight
+and deterministic and drops to 0.02 s/row (66 rows in 1.4 s). Four of eight
 stages never call a model at all, and retrieval removes calls where a labelled
 near-duplicate already answers the question.
 

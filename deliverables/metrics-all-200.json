@@ -1,0 +1,182 @@
+{
+  "pipeline": {
+    "records": 200,
+    "elapsed_seconds": 10.4,
+    "seconds_per_record": 0.05,
+    "needs_review": 7,
+    "review_rate": 0.035,
+    "mean_confidence": 0.762,
+    "total_issues": 41,
+    "stage_failures": {},
+    "llm": {
+      "calls": 432,
+      "cache_hits": 432,
+      "live_calls": 0,
+      "failures": 0,
+      "total_tokens": 0,
+      "avg_latency_s": 0.0,
+      "cache_hit_rate": 1.0,
+      "by_model": {},
+      "exhausted_models": []
+    },
+    "cost": {
+      "estimated_usd": 0.0,
+      "usd_per_record": 0.0,
+      "live_tokens": 0,
+      "live_calls": 0,
+      "cache_hits": 432,
+      "estimated_cache_savings_usd": 0.1555,
+      "usd_per_record_without_cache": 0.000778,
+      "basis": "fully cached run; savings estimated at ~1200 tokens per replayed call"
+    },
+    "sourced_records": 50,
+    "sourced_rate": 0.25,
+    "documents_read": 80,
+    "grounded_attributes": 348,
+    "grounded_rate": 0.239,
+    "retrieval": {
+      "requests": 347,
+      "cache_hits": 347,
+      "live_requests": 0,
+      "failures": 0,
+      "blocked_by_policy": 0,
+      "robots_denied": 0,
+      "megabytes": 0.0,
+      "avg_latency_s": 0.0,
+      "cache_hit_rate": 1.0
+    }
+  },
+  "metrics": {
+    "rows": 200,
+    "fields": [
+      {
+        "field": "MANUFACTURER_NAME",
+        "compared": 200,
+        "exact_match": 0.95,
+        "fuzzy_match": 0.96,
+        "mean_similarity": 0.971,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "BRAND_NAME",
+        "compared": 200,
+        "exact_match": 0.95,
+        "fuzzy_match": 0.955,
+        "mean_similarity": 0.964,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "MANUFACTURER_PART_NUMBER",
+        "compared": 200,
+        "exact_match": 0.99,
+        "fuzzy_match": 0.995,
+        "mean_similarity": 0.998,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "Classpath",
+        "compared": 200,
+        "exact_match": 0.915,
+        "fuzzy_match": 0.92,
+        "mean_similarity": 0.988,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "Product Name",
+        "compared": 200,
+        "exact_match": 0.81,
+        "fuzzy_match": 0.91,
+        "mean_similarity": 0.96,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "MOBILE_DESC",
+        "compared": 200,
+        "exact_match": 0.06,
+        "fuzzy_match": 0.65,
+        "mean_similarity": 0.869,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "INVOICE_DESC",
+        "compared": 200,
+        "exact_match": 0.005,
+        "fuzzy_match": 0.6,
+        "mean_similarity": 0.84,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "SHORT_DESC",
+        "compared": 200,
+        "exact_match": 0.01,
+        "fuzzy_match": 0.8,
+        "mean_similarity": 0.923,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "LONG_DESC1",
+        "compared": 200,
+        "exact_match": 0.0,
+        "fuzzy_match": 0.855,
+        "mean_similarity": 0.928,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      },
+      {
+        "field": "RETAIL_DESC",
+        "compared": 200,
+        "exact_match": 0.01,
+        "fuzzy_match": 0.85,
+        "mean_similarity": 0.928,
+        "fill_rate": 1.0,
+        "truth_fill_rate": 1.0
+      }
+    ],
+    "headline": {
+      "mean_exact_match": 0.47,
+      "mean_fuzzy_match": 0.849
+    },
+    "attributes": {
+      "labels_emitted": 4028,
+      "label_precision": 0.976,
+      "values_compared": 1263,
+      "value_accuracy": 0.7
+    },
+    "compliance": {
+      "invoice_within_40_chars": 1.0,
+      "invoice_all_caps": 1.0,
+      "mobile_within_60_80_chars": 1.0,
+      "unit_spacing_correct": 1.0,
+      "fractions_not_decimals": 1.0
+    },
+    "coverage": {
+      "cells_filled": 12614,
+      "truth_cells_filled": 15880,
+      "fill_ratio_vs_truth": 0.794
+    },
+    "sourcing": {
+      "records": 200,
+      "records_with_a_source": 50,
+      "sourced_rate": 0.25,
+      "records_with_verified_source": 50,
+      "documents_read": 80,
+      "documents_by_kind": {
+        "product-page": 50,
+        "manual": 30
+      },
+      "deep_product_links": 50,
+      "deep_link_rate": 0.25,
+      "filled_attribute_values": 1459,
+      "grounded_values": 348,
+      "grounded_rate": 0.239
+    }
+  }
+}

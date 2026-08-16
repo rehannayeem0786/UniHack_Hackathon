@@ -13,6 +13,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .ipynb_checkpoints/
+*.tsbuildinfo
 
 # --- Project artifacts ---
 .cache/
@@ -32,6 +33,7 @@ _probe*.py
 _p2.txt
 _guide.txt
 _probe_out.txt
+.tmp_*/
 
 # --- OS / editor ---
 .DS_Store
