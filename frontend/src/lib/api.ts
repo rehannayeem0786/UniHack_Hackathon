@@ -84,6 +84,17 @@ export interface RecordPayload {
   research_note?: string;
 }
 
+export interface CostPayload {
+  estimated_usd: number;
+  usd_per_record: number;
+  live_tokens: number;
+  live_calls: number;
+  cache_hits: number;
+  estimated_cache_savings_usd: number;
+  usd_per_record_without_cache: number;
+  basis: string;
+}
+
 export interface PipelineSummary {
   records: number;
   elapsed_seconds: number;
@@ -102,6 +113,8 @@ export interface PipelineSummary {
     cache_hit_rate: number;
     by_model: Record<string, number>;
   };
+  /** Estimated USD for this run, and what the cache saved. */
+  cost?: CostPayload;
   sourced_records: number;
   sourced_rate: number;
   documents_read: number;
@@ -188,6 +201,19 @@ export interface SamplePayload {
   count: number;
   rows: Record<string, string>[];
 }
+
+/** One event from `/api/enrich/stream`, in arrival order. */
+export type EnrichStreamEvent =
+  | {
+      type: "stage";
+      stage: string;
+      event: "start" | "end";
+      elapsed_ms: number;
+      part_number: string;
+    }
+  | { type: "record"; record: RecordPayload }
+  | { type: "summary"; summary: PipelineSummary }
+  | { type: "error"; message: string };
 
 export interface KnowledgePayload {
   summary: Record<string, number>;
@@ -312,6 +338,67 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ part_numbers: partNumbers }),
     }),
+
+  /**
+   * Enrich one row while streaming stage transitions as Server-Sent Events.
+   *
+   * `EventSource` only does GET, and this needs a POST body, so the stream is
+   * read with fetch and parsed by hand. The callback fires once per event:
+   * `stage` (start/end with real elapsed ms), then `record`, then `summary`.
+   * Returns a promise that resolves when the stream closes, or rejects on a
+   * network failure or a server-side `error` event.
+   */
+  enrichStream: async (
+    partNumber: string,
+    onEvent: (event: EnrichStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    const response = await fetch("/api/enrich/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ part_numbers: [partNumber] }),
+      signal,
+    });
+    if (!response.ok || !response.body) {
+      let detail = `${response.status} ${response.statusText}`;
+      try {
+        const body = (await response.json()) as { detail?: string };
+        if (body?.detail) detail = body.detail;
+      } catch {
+        /* not JSON */
+      }
+      throw new ApiError(detail, response.status);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Events are separated by a blank line; each is `event:` + `data:` lines.
+      // The event type also travels inside the JSON payload, so only `data:`
+      // needs parsing here.
+      let boundary: number;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const raw = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+
+        let data = "";
+        for (const line of raw.split("\n")) {
+          if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        if (!data) continue;
+
+        const parsed = JSON.parse(data) as EnrichStreamEvent;
+        if (parsed.type === "error") throw new ApiError(parsed.message, 500);
+        onEvent(parsed);
+      }
+    }
+  },
 
   evaluation: (refresh = false) =>
     request<EvaluationPayload>(`/api/evaluation?refresh=${refresh}`),

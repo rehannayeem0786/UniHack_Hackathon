@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Clock, Cpu, Play, ShieldCheck, Wand2, Zap } from "lucide-react";
+import { Clock, DollarSign, Play, ShieldCheck, Wand2, Zap } from "lucide-react";
 import { toast } from "sonner";
 
 import { MetricCard } from "@/components/shared/MetricCard";
-import { PipelineFlow, STAGES, type StageStatus } from "@/components/shared/PipelineFlow";
+import { PipelineFlow, type StageState, type StageStatus } from "@/components/shared/PipelineFlow";
+import { BeforeAfter } from "@/components/enrich/BeforeAfter";
 import { RecordView } from "@/components/enrich/RecordView";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,25 +18,30 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAsync } from "@/hooks/useAsync";
-import { api, type RecordPayload } from "@/lib/api";
-import { percent, seconds } from "@/lib/format";
+import { api, type PipelineSummary, type RecordPayload } from "@/lib/api";
+import { percent, seconds, usd } from "@/lib/format";
 
 export function EnrichPanel() {
   const sample = useAsync(() => api.sample(40, "holdout"));
   const [selected, setSelected] = useState<string>();
   const [record, setRecord] = useState<RecordPayload>();
   const [status, setStatus] = useState<StageStatus>("idle");
-  const [activeIndex, setActiveIndex] = useState(-1);
+  const [stageStates, setStageStates] = useState<Record<string, StageState>>({});
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string>();
   const [elapsed, setElapsed] = useState<number>();
-  const [llmCalls, setLlmCalls] = useState<{ live: number; cached: number }>();
+  const [summary, setSummary] = useState<PipelineSummary>();
+  const abortRef = useRef<AbortController>();
 
   const rows = sample.data?.rows ?? [];
 
   useEffect(() => {
     if (!selected && rows.length) setSelected(rows[0].PART_NUMBER);
   }, [rows, selected]);
+
+  // Abort an in-flight stream when the panel unmounts, so a late event can
+  // never update state that no longer exists.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const current = useMemo(
     () => rows.find((row) => row.PART_NUMBER === selected),
@@ -44,44 +50,60 @@ export function EnrichPanel() {
 
   async function run() {
     if (!selected) return;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setRunning(true);
     setError(undefined);
     setRecord(undefined);
+    setSummary(undefined);
     setStatus("active");
-    setActiveIndex(0);
-
-    // Walk the stage indicator while the request is in flight. The server does
-    // not stream per-stage events for a single row, so this is presentation
-    // only — the real stage timings are in the batch runs.
-    const walker = window.setInterval(() => {
-      setActiveIndex((index) => Math.min(index + 1, STAGES.length - 1));
-    }, 320);
+    setStageStates({});
 
     try {
-      const result = await api.enrich([selected]);
-      const first = result.records[0];
-      if (!first) throw new Error("The service returned no record.");
-      setRecord(first);
-      setElapsed(result.summary.elapsed_seconds);
-      setLlmCalls({
-        live: result.summary.llm.live_calls,
-        cached: result.summary.llm.cache_hits,
-      });
+      // Real stage events, streamed from the server as each agent starts and
+      // finishes — no timers, no guessing. The eight agents light up live.
+      let streamed: RecordPayload | undefined;
+      await api.enrichStream(
+        selected,
+        (event) => {
+          if (event.type === "stage") {
+            setStageStates((prev) => ({
+              ...prev,
+              [event.stage]:
+                event.event === "start"
+                  ? { status: "active" }
+                  : { status: "done", elapsedMs: event.elapsed_ms },
+            }));
+          } else if (event.type === "record") {
+            streamed = event.record;
+            setRecord(event.record);
+          } else if (event.type === "summary") {
+            setSummary(event.summary);
+            setElapsed(event.summary.elapsed_seconds);
+          }
+        },
+        controller.signal,
+      );
+
       setStatus("done");
       toast.success("Enrichment complete", {
-        description: first.needs_review
+        description: streamed?.needs_review
           ? "Row completed and flagged for human review."
           : "Row completed with no outstanding issues.",
       });
     } catch (caught) {
+      if (controller.signal.aborted) return;
       const message = caught instanceof Error ? caught.message : "Enrichment failed.";
       setError(message);
       setStatus("idle");
-      setActiveIndex(-1);
+      setStageStates({});
       toast.error("Enrichment failed", { description: message });
     } finally {
-      window.clearInterval(walker);
-      setRunning(false);
+      if (abortRef.current === controller) {
+        setRunning(false);
+      }
     }
   }
 
@@ -164,12 +186,13 @@ export function EnrichPanel() {
           <CardHeader>
             <CardTitle as="h2">Pipeline</CardTitle>
             <CardDescription>
-              Six stages, knowledge base first. Two stages never call a model, and where
-              one is called it chooses from an approved list rather than writing freely.
+              Eight agents, knowledge base first. Four never call a model, and where one
+              is called it chooses from an approved list rather than writing freely.
+              Watch them light up in real time as the row is enriched.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <PipelineFlow status={status} activeIndex={activeIndex} />
+            <PipelineFlow status={status} stageStates={stageStates} />
           </CardContent>
         </Card>
       </div>
@@ -208,14 +231,23 @@ export function EnrichPanel() {
               index={2}
             />
             <MetricCard
-              label="Model calls"
-              value={`${llmCalls?.live ?? 0} live`}
-              detail={`${llmCalls?.cached ?? 0} served from cache`}
-              icon={llmCalls?.live ? Cpu : Zap}
-              tone={llmCalls?.live ? "default" : "success"}
+              label="Estimated cost"
+              value={usd(summary?.cost?.estimated_usd)}
+              detail={
+                summary?.cost
+                  ? summary.cost.live_calls
+                    ? `${summary.cost.live_calls} live calls · ${summary.cost.cache_hits} cached`
+                    : "fully served from cache — $0"
+                  : `${summary?.llm.live_calls ?? 0} live calls`
+              }
+              icon={summary?.cost?.estimated_usd ? DollarSign : Zap}
+              tone={summary?.cost?.estimated_usd ? "default" : "success"}
+              hint="Estimated from token counts at public list prices. Cached responses cost nothing."
               index={3}
             />
           </div>
+
+          <BeforeAfter record={record} />
 
           <RecordView record={record} />
         </motion.div>

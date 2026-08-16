@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  Banknote,
   CheckCircle2,
   Database,
   Download,
@@ -44,7 +45,7 @@ import {
   type PipelineSummary,
   type RecordPayload,
 } from "@/lib/api";
-import { percent, seconds } from "@/lib/format";
+import { percent, seconds, usd } from "@/lib/format";
 
 const FOLDS = [
   { value: "holdout", label: "Holdout — unseen by the knowledge base", hint: "The honest number" },
@@ -293,7 +294,7 @@ export function BatchPanel() {
             </div>
 
             {summary ? (
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                 <MetricCard
                   label="Rows"
                   value={String(summary.records)}
@@ -324,6 +325,19 @@ export function BatchPanel() {
                   icon={Zap}
                   tone="success"
                   index={3}
+                />
+                <MetricCard
+                  label="Estimated cost"
+                  value={usd(summary.cost?.estimated_usd)}
+                  detail={
+                    summary.cost?.usd_per_record !== undefined
+                      ? `${usd(summary.cost.usd_per_record)} per row`
+                      : "from measured token usage"
+                  }
+                  icon={Banknote}
+                  tone={summary.cost?.estimated_usd ? "default" : "success"}
+                  hint="Estimated USD at public list prices. Cached responses cost nothing."
+                  index={4}
                 />
               </div>
             ) : null}

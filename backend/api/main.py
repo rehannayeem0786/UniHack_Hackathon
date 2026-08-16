@@ -19,7 +19,9 @@ would be required before doing that.
 from __future__ import annotations
 
 import io
+import json
 import logging
+import queue
 import threading
 from typing import Any
 
@@ -380,6 +382,91 @@ def enrich(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         payloads.append(item)
 
     return {"summary": result.summary(), "records": payloads}
+
+
+@app.post("/api/enrich/stream")
+def enrich_stream(payload: dict[str, Any] = Body(...)) -> StreamingResponse:
+    """Enrich one row while streaming every stage transition as it happens.
+
+    The UI watches the eight agents light up in real time: each stage emits a
+    `start` event when its agent begins and an `end` event carrying the real
+    elapsed milliseconds when it finishes. The final events carry the enriched
+    record (with truth and provenance, same shape as `/api/enrich`) and the
+    run summary, so the client needs exactly one request for the whole demo.
+
+    Events are Server-Sent Events: `event: <type>` plus a JSON `data:` line.
+    """
+    part_numbers = payload.get("part_numbers") or []
+    if len(part_numbers) != 1:
+        raise HTTPException(400, "the stream endpoint enriches exactly one row")
+
+    frame = context.split.inputs
+    selected = frame[frame["PART_NUMBER"].astype(str).isin([str(p) for p in part_numbers])]
+    if selected.empty:
+        raise HTTPException(404, "no matching part number in the bundled dataset")
+    record = next(iter(records_from(selected)))
+
+    events: queue.Queue[dict[str, Any] | None] = queue.Queue()
+
+    def stage_hook(stage: str, event: str, rec: ProductRecord, elapsed_ms: float) -> None:
+        events.put(
+            {
+                "type": "stage",
+                "stage": stage,
+                "event": event,
+                "elapsed_ms": round(elapsed_ms, 1),
+                "part_number": rec.part_number,
+            }
+        )
+
+    def worker() -> None:
+        try:
+            result = context.pipeline.run([record], stage_hook=stage_hook, max_workers=1)
+            enriched = result.records[0]
+            item = _record_payload(enriched)
+
+            truth = context.split.truth.set_index("PART_NUMBER")
+            key = record.part_number
+            if key in truth.index:
+                reference = truth.loc[key]
+                if isinstance(reference, pd.DataFrame):
+                    reference = reference.iloc[0]
+                item["truth"] = {
+                    column: ("" if pd.isna(reference.get(column)) else str(reference.get(column)))
+                    for column in (
+                        "MANUFACTURER_NAME", "BRAND_NAME", "Classpath", "Product Name",
+                        "INVOICE_DESC", "MOBILE_DESC", "SHORT_DESC", "RETAIL_DESC",
+                        "LONG_DESC1",
+                    )
+                }
+
+            events.put({"type": "record", "record": item})
+            events.put({"type": "summary", "summary": result.summary()})
+        except Exception as exc:  # noqa: BLE001 - report, never crash the stream
+            logger.exception("stream enrichment failed")
+            events.put({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+        finally:
+            events.put(None)  # sentinel: close the stream
+
+    thread = threading.Thread(target=worker, daemon=True, name="enrich-stream")
+    thread.start()
+
+    def generate():
+        while True:
+            event = events.get()
+            if event is None:
+                break
+            yield f"event: {event['type']}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # nginx must not buffer SSE
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # --- batch -----------------------------------------------------------------

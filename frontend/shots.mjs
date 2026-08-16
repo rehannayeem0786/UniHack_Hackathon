@@ -198,6 +198,19 @@ try {
   await page.screenshot({ path: `${OUT}/10-batch.png` });
   console.log("  -> 10-batch.png");
 
+  console.log("Review tab");
+  await tab(page, "Review");
+  // First visit runs the holdout fold (fast when the cache is warm).
+  await page.waitForFunction(
+    () => /Pending review|No records/i.test(document.body.textContent ?? ""),
+    { timeout: 300000 },
+  );
+  await wait(1500);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await wait(400);
+  await page.screenshot({ path: `${OUT}/11-review.png` });
+  console.log("  -> 11-review.png");
+
   console.log("\nDone. Files in docs/shots/");
 } finally {
   await browser.close();

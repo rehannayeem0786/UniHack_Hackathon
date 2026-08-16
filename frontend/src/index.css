@@ -131,6 +131,12 @@
     @apply border border-white/[0.06] bg-white/[0.02] backdrop-blur-xl;
   }
 
+  /* Headline gradient with room to animate; pair with animate-gradient-x. */
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary via-cyan-300 to-success bg-clip-text text-transparent;
+    background-size: 200% auto;
+  }
+
   /* Numeric columns: tabular figures so digits line up down a table. */
   .tabular {
     font-variant-numeric: tabular-nums;

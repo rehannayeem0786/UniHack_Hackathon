@@ -109,11 +109,24 @@ export default {
           "70%": { boxShadow: "0 0 0 10px hsl(var(--primary) / 0)" },
           "100%": { boxShadow: "0 0 0 0 hsl(var(--primary) / 0)" },
         },
+        /* Slow ambient drift for the hero's aurora blobs. */
+        drift: {
+          "0%, 100%": { transform: "translate3d(0, 0, 0) scale(1)" },
+          "33%": { transform: "translate3d(3rem, -2rem, 0) scale(1.08)" },
+          "66%": { transform: "translate3d(-2rem, 1.5rem, 0) scale(0.94)" },
+        },
+        /* Slides the gradient across headline text. */
+        "gradient-x": {
+          "0%, 100%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+        },
       },
       animation: {
         "fade-up": "fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both",
         shimmer: "shimmer 1.6s infinite",
         "pulse-ring": "pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+        drift: "drift 18s ease-in-out infinite",
+        "gradient-x": "gradient-x 6s ease infinite",
       },
     },
   },
