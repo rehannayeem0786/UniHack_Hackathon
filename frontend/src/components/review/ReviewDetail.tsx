@@ -441,15 +441,24 @@ function AttributeEditor({
 }
 
 function EvidenceList({ data }: { data: ReviewRecordPayload }) {
+  const thirdParty = data.citations.filter((c) => c.source === "third-party").length;
   return (
     <div className="space-y-3">
-      <Label>First-party sources read ({data.citations.length})</Label>
+      <Label>
+        Sources read ({data.citations.length}
+        {thirdParty > 0 ? `, ${thirdParty} third-party` : ""})
+      </Label>
       <ul className="space-y-2">
         {data.citations.map((citation) => (
           <li key={citation.url} className="flex items-start gap-2 text-sm">
             <Badge variant="outline" className="mt-0.5 shrink-0">
               {citation.kind}
             </Badge>
+            {citation.source === "third-party" ? (
+              <Badge variant="default" className="mt-0.5 shrink-0">
+                third-party
+              </Badge>
+            ) : null}
             <div className="min-w-0">
               <a
                 href={citation.url}

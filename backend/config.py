@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     web_context_chars: int = Field(
         default=3500, ge=500, le=40000, alias="WEB_CONTEXT_CHARS"
     )
+    # When the manufacturer publishes nothing about a part, fall back to a small
+    # allowlist of reputable third-party sources (standards bodies, government
+    # databases, the GS1 registry). E-commerce hosts are never eligible.
+    web_third_party_fallback: bool = Field(
+        default=True, alias="WEB_THIRD_PARTY_FALLBACK"
+    )
 
     # --- Server ---
     host: str = Field(default="127.0.0.1", alias="HOST")

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import pickle
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,11 +20,62 @@ OUTPUT_FILE = "Unilog_Output_Delivery_Format.xlsx"
 INPUT_SHEET = "Input - 200 Items"
 OUTPUT_SHEET = "Delivery Format - 200 Items"
 
+# Version tag for the parsed-frame cache. Bump to invalidate every entry when a
+# future code change alters how frames are parsed or repaired.
+_CACHE_VERSION = 1
+
+
+def _source_fingerprint(path: Path) -> str:
+    """Identify a source workbook by mtime + size, so an edited file is re-read."""
+    stat = path.stat()
+    return f"{stat.st_mtime_ns}:{stat.st_size}"
+
+
+def _frame_cache_dir() -> Path:
+    directory = settings.cache_path / "data"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
 
 def _read(path: Path, sheet: str) -> pd.DataFrame:
+    """Read and repair a workbook sheet, cached on disk across processes.
+
+    Parsing the 252-column delivery workbook dominates startup (≈0.8 s per
+    process). Every script invocation and every API cold start pays it again
+    even though the source file never changes, so the repaired frame is cached
+    keyed by a fingerprint of the source file. The workbook is re-read whenever
+    the file is edited (mtime/size change) or the cache entry is missing.
+    """
+    fingerprint = _source_fingerprint(path)
+    key = hashlib.sha256(
+        f"{path}:{sheet}\x00{fingerprint}\x00{_CACHE_VERSION}".encode("utf-8")
+    ).hexdigest()[:24]
+    cache_file = _frame_cache_dir() / f"{key}.pkl"
+
+    if cache_file.exists():
+        try:
+            with cache_file.open("rb") as fh:
+                cached = pickle.load(fh)
+            if isinstance(cached, dict) and cached.get("fingerprint") == fingerprint:
+                return cached["frame"]
+        except Exception:  # noqa: BLE001 - a corrupt entry is re-parsed, never fatal
+            pass
+
     frame = pd.read_excel(path, sheet_name=sheet, dtype=str)
     # Excel keeps ® / ™ intact; the CSV copies do not, so we always read Excel.
-    return frame.map(lambda v: repair_symbols(v) if isinstance(v, str) else v)
+    frame = frame.map(lambda v: repair_symbols(v) if isinstance(v, str) else v)
+
+    # Atomic write: pickle is not safe to read mid-write, and a parse cache must
+    # never be the thing that crashes the pipeline if two processes race.
+    try:
+        fd, tmp = tempfile.mkstemp(dir=cache_file.parent, suffix=".tmp")
+        with os.fdopen(fd, "wb") as fh:
+            pickle.dump({"fingerprint": fingerprint, "frame": frame}, fh)
+        os.replace(tmp, cache_file)
+    except OSError:  # noqa: BLE001 - a cache that cannot be written just re-parses
+        pass
+
+    return frame
 
 
 def load_inputs(data_dir: Path | None = None) -> pd.DataFrame:

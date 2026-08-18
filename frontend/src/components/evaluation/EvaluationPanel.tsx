@@ -540,6 +540,7 @@ function TraceabilityCard({
             [
               ["Rows with a first-party source", `${sourcing.records_with_a_source} of ${sourcing.records}`],
               ["Retrieval reach", percent(sourcing.sourced_rate, 0)],
+              ["Rows supplemented by reputable third-party sources", integer(sourcing.records_supplemented_third_party ?? 0)],
               ["Verified deep product links", integer(sourcing.deep_product_links)],
               ["Documents read", integer(sourcing.documents_read)],
               ["Attribute values grounded", `${sourcing.grounded_values} of ${sourcing.filled_attribute_values}`],

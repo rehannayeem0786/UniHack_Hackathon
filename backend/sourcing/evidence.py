@@ -67,6 +67,12 @@ class Evidence:
     # Stronger still: is the part number in the URL itself? That is the mark of
     # the product's own page rather than a page that merely references it.
     url_names_part: bool = False
+    # Was this read from a reputable third-party source rather than the
+    # manufacturer's own site? Third-party evidence supplements a record when
+    # the manufacturer publishes nothing, but it is always cited as such and
+    # scored below first-party evidence — it can never become the `MFR URL`
+    # and it can never outrank the manufacturer's own word.
+    third_party: bool = False
 
     def __post_init__(self) -> None:
         self.retrieved_at = self.retrieved_at or datetime.now(timezone.utc).isoformat(
@@ -76,6 +82,11 @@ class Evidence:
     @property
     def rank(self) -> int:
         return KIND_RANK.get(self.kind, KIND_RANK["other"])
+
+    @property
+    def source_tier(self) -> str:
+        """`first-party` or `third-party`: the citation's trust tier."""
+        return "third-party" if self.third_party else "first-party"
 
     @property
     def is_pdf(self) -> bool:
@@ -99,11 +110,13 @@ class Evidence:
             "from_cache": self.from_cache,
             "characters": len(self.text),
             "table_rows": len(self.tables),
+            "source": self.source_tier,
         }
 
     def as_context(self, budget: int) -> str:
         """Render for a prompt: the spec table first, then prose."""
-        head = f"[{self.kind}] {self.title or self.url}\nSOURCE: {self.url}\n"
+        tier = "THIRD-PARTY " if self.third_party else ""
+        head = f"[{tier}{self.kind}] {self.title or self.url}\nSOURCE: {self.url}\n"
         pieces: list[str] = []
         if self.tables:
             rows = "\n".join(f"  {k}: {v}" for k, v in self.tables.items())
@@ -131,7 +144,9 @@ class EvidenceBundle:
         if any(d.url == evidence.url for d in self.documents):
             return
         self.documents.append(evidence)
-        self.documents.sort(key=lambda d: (d.rank, -len(d.text)))
+        # First-party documents outrank third-party ones at the same kind, so a
+        # manufacturer spec sheet always sorts ahead of a third-party page.
+        self.documents.sort(key=lambda d: (d.third_party, d.rank, -len(d.text)))
 
     def __bool__(self) -> bool:
         return bool(self.documents)
@@ -143,6 +158,15 @@ class EvidenceBundle:
     def urls(self) -> list[str]:
         return [d.url for d in self.documents]
 
+    @property
+    def has_first_party(self) -> bool:
+        """True when at least one document came from the manufacturer itself."""
+        return any(not d.third_party for d in self.documents)
+
+    @property
+    def third_party_documents(self) -> list[Evidence]:
+        return [d for d in self.documents if d.third_party]
+
     def best_product_page(self) -> Evidence | None:
         """The page most suitable as `MFR URL`.
 
@@ -150,11 +174,16 @@ class EvidenceBundle:
         text it has. A part number in the URL is the strongest signal; length is
         only the final tie-break, because otherwise a long press release that
         happens to name the model beats the product's own page.
+
+        Third-party documents are excluded outright: `MFR URL` is by definition
+        the manufacturer's own page, and a reputable third-party listing can
+        never stand in for it.
         """
         pages = [
             d
             for d in self.documents
-            if not d.is_pdf
+            if not d.third_party
+            and not d.is_pdf
             and d.kind in {"product-page", "specification", "support-page"}
         ]
         if not pages:
@@ -246,7 +275,15 @@ class EvidenceBundle:
         tables = self.merged_tables()
         if tables:
             rows = "\n".join(f"  {label}: {value}" for label, (value, _) in tables.items())
-            block = f"MANUFACTURER SPECIFICATIONS:\n{rows[: max(600, budget - 400)]}"
+            # Label the block by where the pairs actually came from: a bundle
+            # that only holds third-party documents must not present its tables
+            # as the manufacturer's own claims.
+            heading = (
+                "MANUFACTURER SPECIFICATIONS"
+                if self.has_first_party
+                else "THIRD-PARTY SPECIFICATIONS (not from the manufacturer)"
+            )
+            block = f"{heading}:\n{rows[: max(600, budget - 400)]}"
             blocks.append(block)
             remaining -= len(block)
 
@@ -257,7 +294,8 @@ class EvidenceBundle:
             if remaining <= 200 or not document.text:
                 break
             slice_ = document.text[: min(per_document, remaining)]
-            blocks.append(f"[{document.kind}] SOURCE: {document.url}\n{slice_}")
+            tier = "THIRD-PARTY " if document.third_party else ""
+            blocks.append(f"[{tier}{document.kind}] SOURCE: {document.url}\n{slice_}")
             remaining -= len(slice_)
 
         return "\n\n---\n\n".join(blocks)
@@ -287,5 +325,6 @@ class EvidenceBundle:
             "mpn_confirmed": sum(1 for d in self.documents if d.mentions_mpn),
             "characters": sum(len(d.text) for d in self.documents),
             "permitted_domains": self.permitted_domains,
+            "third_party_documents": len(self.third_party_documents),
             "note": self.note,
         }

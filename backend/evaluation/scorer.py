@@ -269,9 +269,18 @@ class Evaluator:
             if (getattr(r, "mfr_url", "") or "").count("/") > 2
         )
         kinds: Counter = Counter()
+        third_party_documents = 0
+        records_with_third_party = 0
         for record in records:
-            for citation in getattr(record, "citations", []) or []:
+            citations = getattr(record, "citations", []) or []
+            has_third_party = False
+            for citation in citations:
                 kinds[citation.get("kind", "other")] += 1
+                if citation.get("source") == "third-party":
+                    third_party_documents += 1
+                    has_third_party = True
+            if has_third_party:
+                records_with_third_party += 1
 
         return {
             "records": len(records),
@@ -280,6 +289,10 @@ class Evaluator:
             "records_with_verified_source": confirmed,
             "documents_read": documents,
             "documents_by_kind": dict(kinds),
+            # Fallback reach: records the manufacturer published nothing about,
+            # supplemented from the reputable third-party allowlist.
+            "third_party_documents": third_party_documents,
+            "records_supplemented_third_party": records_with_third_party,
             "deep_product_links": deep_links,
             "deep_link_rate": round(deep_links / total, 3),
             "filled_attribute_values": filled,

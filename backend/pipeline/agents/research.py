@@ -21,6 +21,13 @@ The sequence per record:
 5. Write `MFR URL` as the confirmed deep product link, fill `Ref URL 1-5` with
    the documents actually retrieved, and attach the evidence bundle.
 
+When the manufacturer publishes nothing about a part — no approved domain, or
+no page on it that names the part — a fallback consults a small allowlist of
+reputable third-party sources (standards bodies, government databases, the
+GS1 registry). E-commerce hosts are never eligible. Fallback documents are
+flagged `third_party`, cited with their tier, scored below first-party
+evidence, and can never become the `MFR URL`.
+
 Everything degrades cleanly. No key is needed, and with `WEB_ENABLED=false` or no
 network the stage records a note, attaches an empty bundle, and the rest of the
 pipeline behaves exactly as it did before retrieval existed.
@@ -39,7 +46,11 @@ from backend.sourcing import discovery
 from backend.sourcing.evidence import Evidence, EvidenceBundle
 from backend.sourcing.extract import classify_document, classify_page, mentions, valid_gtin
 from backend.sourcing.fetch import WebFetcher, get_fetcher
-from backend.sourcing.policy import domains_for
+from backend.sourcing.policy import (
+    REPUTABLE_THIRD_PARTY_DOMAINS,
+    domains_for,
+    is_reputable_third_party,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,12 +128,23 @@ class ResearchAgent:
         if not mpn:
             bundle.note = "no part number to research"
             return record
-        if not permitted:
-            bundle.note = f"no approved manufacturer domain for {brand or manufacturer or 'unknown brand'}"
-            return record
 
-        pages = self._read_pages(record, mpn, permitted, bundle)
-        self._read_documents(pages, mpn, permitted, bundle)
+        if permitted:
+            pages = self._read_pages(record, mpn, permitted, bundle)
+            self._read_documents(pages, mpn, permitted, bundle)
+        else:
+            bundle.note = (
+                f"no approved manufacturer domain for "
+                f"{brand or manufacturer or 'unknown brand'}"
+            )
+
+        # Fallback: when the manufacturer publishes nothing about this part —
+        # no approved domain, or no page on it names the part — consult the
+        # reputable third-party allowlist (standards bodies, government
+        # databases, the GS1 registry). Never e-commerce, always cited as
+        # third-party, and never promoted to `MFR URL`.
+        if not bundle.documents and settings.web_third_party_fallback:
+            self._read_third_party(record, mpn, bundle)
 
         self._record_urls(record, bundle)
         self._columns_from_evidence(record, bundle)
@@ -131,6 +153,11 @@ class ResearchAgent:
 
         if not bundle.documents:
             bundle.note = bundle.note or "no first-party source found for this part"
+        elif not bundle.has_first_party:
+            bundle.note = (
+                "no first-party source found; supplemented from reputable "
+                "third-party sources (not the manufacturer)"
+            )
         return record
 
     # -- pages -------------------------------------------------------------
@@ -249,6 +276,87 @@ class ResearchAgent:
             )
             budget -= 1
 
+    # -- third-party fallback ------------------------------------------------
+    def _read_third_party(
+        self, record: ProductRecord, mpn: str, bundle: EvidenceBundle
+    ) -> None:
+        """Read reputable third-party sources when the manufacturer publishes nothing.
+
+        This is the accuracy floor for records whose manufacturer has no data
+        available: no known domain, or no page on it that names the part. The
+        rules are deliberately stricter than first-party research:
+
+        * only hosts on `REPUTABLE_THIRD_PARTY_DOMAINS` are readable — the
+          allowlist is the permitted set handed to the fetcher, and every
+          candidate is re-checked with `is_reputable_third_party`, which fails
+          closed and refuses anything e-commerce
+        * a page is accepted only if it mentions the part number, exactly as in
+          first-party research — an unconfirmed page is not evidence
+        * at most two documents are read, so the fallback stays cheap
+        * everything accepted is flagged `third_party`, cited with its tier,
+          and scored below first-party evidence; it can never become `MFR URL`
+        """
+        brand = record.brand_name or ""
+        manufacturer = record.manufacturer_name or ""
+        hint = record.product_name or record.classpath or ""
+        extra = hint.split(">")[-1].strip() if hint else ""
+
+        permitted = set(REPUTABLE_THIRD_PARTY_DOMAINS)
+        try:
+            urls = discovery.third_party_candidates(
+                mpn, brand, manufacturer, extra_terms=extra
+            )
+        except Exception as exc:  # noqa: BLE001 - discovery must never break a run
+            logger.debug("third-party discovery failed for %s: %s", mpn, exc)
+            urls = []
+
+        if not urls:
+            return
+
+        budget = 2
+        for url in urls[:MAX_PAGE_ATTEMPTS]:
+            if budget <= 0:
+                break
+            if not is_reputable_third_party(url):
+                continue
+            fetched = self.fetcher.document(url, permitted)
+            if fetched is None or fetched.kind not in {"html", "pdf"}:
+                continue
+            if fetched.kind == "pdf" and not fetched.text.strip():
+                continue
+
+            kind = (
+                classify_document(url, "") if fetched.kind == "pdf"
+                else classify_page(fetched.url, fetched.title)
+            )
+            if kind == "editorial":
+                continue
+
+            hit = (
+                mentions(fetched.text, mpn)
+                or mentions(fetched.title, mpn)
+                or mentions(fetched.url, mpn)
+                or any(mentions(v, mpn) for v in fetched.tables.values())
+            )
+            if not hit:
+                logger.debug("third-party page did not mention %s: %s", mpn, fetched.url)
+                continue
+
+            bundle.add(
+                Evidence(
+                    url=fetched.url,
+                    kind=kind,
+                    title=fetched.title or url.rsplit("/", 1)[-1],
+                    text=fetched.text,
+                    tables=fetched.tables,
+                    from_cache=fetched.from_cache,
+                    mentions_mpn=True,
+                    url_names_part=mentions(fetched.url, mpn),
+                    third_party=True,
+                )
+            )
+            budget -= 1
+
     # -- columns the input could never supply -------------------------------
     def _columns_from_evidence(
         self, record: ProductRecord, bundle: EvidenceBundle
@@ -281,7 +389,14 @@ class ResearchAgent:
             else:
                 record.extras[column] = clean(raw)
 
-            record.provenance[column] = f"first-party source: {document.url}"
+            # Tier-aware provenance: a value read from a reputable third-party
+            # source is cited as such and scored below a first-party one.
+            if document.third_party:
+                record.provenance[column] = f"reputable third-party source: {document.url}"
+                record.confidence[column] = 0.7
+            else:
+                record.provenance[column] = f"first-party source: {document.url}"
+                record.confidence[column] = 0.9
             record.grounded[column] = document.url
 
     # -- barcodes ------------------------------------------------------------
@@ -308,7 +423,12 @@ class ResearchAgent:
             if not valid_gtin(code):
                 continue
             record.extras[column] = code
-            record.provenance[column] = f"first-party source: {document.url}"
+            if document.third_party:
+                record.provenance[column] = f"reputable third-party source: {document.url}"
+                record.confidence[column] = 0.7
+            else:
+                record.provenance[column] = f"first-party source: {document.url}"
+                record.confidence[column] = 0.9
             record.grounded[column] = document.url
 
         # Relate the columns: a UPC-A implies its GTIN-14 form.
@@ -336,13 +456,26 @@ class ResearchAgent:
         for column, url in zip(REF_URL_COLUMNS, references):
             record.extras[column] = url
         if references:
-            record.provenance["reference_urls"] = (
-                f"{len(references)} first-party document(s) retrieved"
+            first_party = sum(
+                1 for d in bundle.documents
+                if d.url != record.mfr_url and not d.third_party
             )
+            third_party = len(references) - first_party
+            parts = []
+            if first_party:
+                parts.append(f"{first_party} first-party document(s)")
+            if third_party:
+                parts.append(f"{third_party} reputable third-party document(s)")
+            record.provenance["reference_urls"] = f"{', '.join(parts)} retrieved"
 
         if bundle.documents:
+            # First-party documents raise confidence more than third-party ones:
+            # the fallback supplements a record, it does not match the
+            # manufacturer's own word.
+            first_party = sum(1 for d in bundle.documents if not d.third_party)
+            third_party = len(bundle.documents) - first_party
             record.confidence["research"] = round(
-                min(1.0, 0.45 + 0.2 * len(bundle.documents)), 3
+                min(1.0, 0.45 + 0.2 * first_party + 0.1 * third_party), 3
             )
             record.provenance["research"] = ", ".join(
                 sorted({d.kind for d in bundle.documents})

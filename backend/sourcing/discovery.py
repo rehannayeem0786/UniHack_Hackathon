@@ -19,6 +19,11 @@ Two discovery routes, tried in order:
    all — but every candidate is still fetched and confirmed to mention the part
    number before it is believed.
 
+A third route exists for the fallback case, when the manufacturer publishes
+nothing about a part: `third_party_candidates` searches without a `site:`
+restriction but keeps only URLs on the reputable third-party allowlist
+(standards bodies, government databases, the GS1 registry — never e-commerce).
+
 A candidate is only ever a candidate. `research.py` fetches it and checks the
 part number actually appears before any evidence is recorded.
 """
@@ -35,7 +40,12 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote_plus, urldefrag, urlparse
 
 from backend.config import settings
-from backend.sourcing.policy import allowed, is_blocked, registrable
+from backend.sourcing.policy import (
+    allowed,
+    is_blocked,
+    is_reputable_third_party,
+    registrable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -180,12 +190,12 @@ class SearchClient:
         except OSError:
             pass
 
-    def search(self, query: str, permitted: set[str], limit: int = 6) -> list[str]:
-        """Return permitted URLs for a query. Snippets are deliberately dropped."""
+    def _raw_search(self, query: str) -> list[str]:
+        """Candidate URLs for a query from the index. Snippets are dropped."""
         cached = self._cached(query)
         if cached is not None:
             self.cache_hits += 1
-            return [u for u in cached if allowed(u, permitted)][:limit]
+            return cached
 
         if not settings.web_enabled:
             return []
@@ -219,7 +229,20 @@ class SearchClient:
                 break
 
         self._store(query, found)
-        return [u for u in found if allowed(u, permitted)][:limit]
+        return found
+
+    def search(self, query: str, permitted: set[str], limit: int = 6) -> list[str]:
+        """Return permitted URLs for a query. Snippets are deliberately dropped."""
+        return [u for u in self._raw_search(query) if allowed(u, permitted)][:limit]
+
+    def third_party_search(self, query: str, limit: int = 6) -> list[str]:
+        """URLs on reputable third-party domains only, for the fallback route.
+
+        Every result is re-checked with `is_reputable_third_party`, which fails
+        closed: an unknown host, a blocked host or anything e-commerce is
+        refused regardless of what the search index returned.
+        """
+        return [u for u in self._raw_search(query) if is_reputable_third_party(u)][:limit]
 
 
 _search: SearchClient | None = None
@@ -300,3 +323,43 @@ def candidates(mpn: str, domains: set[str], *, extra_terms: str = "") -> list[st
 
     ordered = list(dict.fromkeys([*_rank(found, mpn), *templates]))
     return ordered[:10]
+
+
+def third_party_candidates(
+    mpn: str, brand: str = "", manufacturer: str = "", *, extra_terms: str = ""
+) -> list[str]:
+    """Candidate URLs on reputable third-party domains, for the fallback route.
+
+    Used only when the manufacturer publishes nothing about a part. The query
+    is not `site:`-restricted to a single domain — the point is to find
+    whichever reputable source (standards body, government database, GS1
+    registry) happens to document this part — but every returned URL is
+    re-checked against `is_reputable_third_party`, which fails closed and
+    refuses anything e-commerce. Snippets are discarded as always; only URLs
+    survive, and the research stage still confirms the part number appears on
+    the page before any evidence is recorded.
+    """
+    if not mpn:
+        return []
+
+    names = " ".join(n for n in (brand, manufacturer) if n)
+    client = get_search()
+    found: list[str] = []
+
+    queries = [f'"{mpn}" {names}'.strip()]
+    if extra_terms:
+        queries.append(f'"{mpn}" {names} {extra_terms}'.strip())
+
+    for query in queries:
+        for url in client.third_party_search(query):
+            if url not in found:
+                found.append(url)
+        # A part-number-bearing URL on the first query is all we need.
+        if any(
+            re.sub(r"[^a-z0-9]+", "", mpn.casefold())
+            in re.sub(r"[^a-z0-9]+", "", u.casefold())
+            for u in found
+        ):
+            break
+
+    return _rank(found, mpn)[:6]

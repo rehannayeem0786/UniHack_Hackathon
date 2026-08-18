@@ -315,6 +315,11 @@ function SourcesPanel({ record }: { record: RecordPayload }) {
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline">{KIND_LABEL[citation.kind] ?? citation.kind}</Badge>
+                    {citation.source === "third-party" ? (
+                      <Badge variant="default" className="text-[0.6875rem]">
+                        third-party
+                      </Badge>
+                    ) : null}
                     {citation.from_cache ? (
                       <Badge variant="default" className="text-[0.6875rem]">
                         cached

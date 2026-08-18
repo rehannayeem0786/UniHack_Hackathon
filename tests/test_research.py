@@ -78,12 +78,25 @@ def record(mpn="DCD1007B", brand="DEWALT") -> ProductRecord:
     )
 
 
-def run(kb, pages, monkeypatch, rec=None, candidates=None):
-    """Run the stage with discovery stubbed to a fixed candidate list."""
+def run(kb, pages, monkeypatch, rec=None, candidates=None, third_party=None):
+    """Run the stage with discovery stubbed to fixed candidate lists.
+
+    `None` means "keep the default behaviour" so an explicitly empty list is
+    respected: discovery finds nothing first-party, which is what lets the
+    third-party fallback fire in the tests that opt into it. Both discovery
+    routes are stubbed so no test touches the network.
+    """
     from backend.pipeline.agents import research as module
 
     monkeypatch.setattr(
-        module.discovery, "candidates", lambda *a, **k: candidates or list(pages)
+        module.discovery,
+        "candidates",
+        lambda *a, **k: list(pages) if candidates is None else candidates,
+    )
+    monkeypatch.setattr(
+        module.discovery,
+        "third_party_candidates",
+        lambda *a, **k: [] if third_party is None else third_party,
     )
     agent = ResearchAgent(kb, fetcher=FakeFetcher(pages))
     rec = rec or record()
@@ -233,8 +246,116 @@ class TestDegradation:
             raise RuntimeError("search is down")
 
         monkeypatch.setattr(module.discovery, "candidates", boom)
+        monkeypatch.setattr(
+            module.discovery, "third_party_candidates", lambda *a, **k: []
+        )
         agent = ResearchAgent(kb, fetcher=FakeFetcher({}))
         rec = agent.run(record())
         # A retrieval outage must degrade the row, never fail it.
         assert len(rec.evidence) == 0
         assert rec.mfr_url is None
+
+
+class TestThirdPartyFallback:
+    """When the manufacturer publishes nothing, reputable third-party sources
+    (standards bodies, government databases, the GS1 registry) supplement the
+    record — never e-commerce, always cited as third-party, never the MFR URL.
+    """
+
+    GS1 = "https://www.gs1.org/products/00627987501019"
+
+    def test_fallback_fires_only_when_first_party_found_nothing(self, kb, monkeypatch):
+        first_party = "https://www.dewalt.com/en-us/product/dcd1007b/x"
+        pages = {
+            first_party: html_doc(first_party, text="DCD1007B hammer drill"),
+            self.GS1: html_doc(self.GS1, text="DCD1007B"),
+        }
+        rec, agent = run(
+            kb, pages, monkeypatch, candidates=[first_party], third_party=[self.GS1]
+        )
+        # First-party evidence exists, so the fallback must not run at all.
+        assert self.GS1 not in agent.fetcher.requested
+        assert all(not d.third_party for d in rec.evidence.documents)
+
+    def test_third_party_page_supplements_an_unsourced_record(self, kb, monkeypatch):
+        pages = {self.GS1: html_doc(self.GS1, text="DCD1007B 20V drill", tables={"UPC": "00627987501019"})}
+        rec, _ = run(kb, pages, monkeypatch, candidates=[], third_party=[self.GS1])
+        assert len(rec.evidence) == 1
+        doc = rec.evidence.documents[0]
+        assert doc.third_party is True
+        assert doc.mentions_mpn is True
+        # Cited with its tier.
+        assert rec.citations[0]["source"] == "third-party"
+        # The note explains the fallback.
+        assert "third-party" in rec.evidence.note
+        # Reference URL is filled from the third-party document.
+        assert rec.extras.get("Ref URL 1") == self.GS1
+
+    def test_third_party_page_never_becomes_the_mfr_url(self, kb, monkeypatch):
+        pages = {self.GS1: html_doc(self.GS1, text="DCD1007B")}
+        rec, _ = run(kb, pages, monkeypatch, candidates=[], third_party=[self.GS1])
+        assert rec.mfr_url is None
+        assert "mfr_url" not in rec.confidence
+
+    def test_unconfirmed_third_party_page_is_discarded(self, kb, monkeypatch):
+        other = "https://www.gs1.org/products/something-else"
+        pages = {other: html_doc(other, text="a different product entirely")}
+        rec, _ = run(kb, pages, monkeypatch, candidates=[], third_party=[other])
+        assert len(rec.evidence) == 0
+        assert rec.citations == []
+
+    def test_e_commerce_candidates_are_refused(self, kb, monkeypatch):
+        # Even if discovery were to return a retail URL, the research stage
+        # re-checks every candidate and refuses anything e-commerce.
+        amazon = "https://www.amazon.com/dp/B000DCD1007B"
+        pages = {amazon: html_doc(amazon, text="DCD1007B")}
+        rec, agent = run(kb, pages, monkeypatch, candidates=[], third_party=[amazon])
+        assert amazon not in agent.fetcher.requested
+        assert len(rec.evidence) == 0
+
+    def test_unknown_domain_candidates_are_refused(self, kb, monkeypatch):
+        random_site = "https://random-spec-site.example/dcd1007b"
+        pages = {random_site: html_doc(random_site, text="DCD1007B")}
+        rec, agent = run(kb, pages, monkeypatch, candidates=[], third_party=[random_site])
+        assert random_site not in agent.fetcher.requested
+        assert len(rec.evidence) == 0
+
+    def test_third_party_columns_carry_tiered_provenance(self, kb, monkeypatch):
+        pages = {
+            self.GS1: html_doc(
+                self.GS1,
+                text="DCD1007B",
+                tables={"Country Of Origin": "CN", "Assembled Product Weight": "3.23-lbs"},
+            )
+        }
+        rec, _ = run(kb, pages, monkeypatch, candidates=[], third_party=[self.GS1])
+        assert rec.extras["Country Of Origin"] == "China"
+        assert rec.extras["WEIGHT"] == "3.23"
+        # Provenance names the tier, and confidence is capped below first-party.
+        assert "reputable third-party source" in rec.provenance["Country Of Origin"]
+        assert rec.confidence["Country Of Origin"] == 0.7
+        assert rec.grounded["Country Of Origin"] == self.GS1
+
+    def test_fallback_can_be_disabled(self, kb, monkeypatch):
+        from backend.config import settings
+
+        monkeypatch.setattr(settings, "web_third_party_fallback", False)
+        pages = {self.GS1: html_doc(self.GS1, text="DCD1007B")}
+        rec, agent = run(kb, pages, monkeypatch, candidates=[], third_party=[self.GS1])
+        assert self.GS1 not in agent.fetcher.requested
+        assert len(rec.evidence) == 0
+
+    def test_fallback_caps_documents_at_two(self, kb, monkeypatch):
+        urls = [
+            f"https://www.gs1.org/products/item-{i}" for i in range(5)
+        ]
+        pages = {u: html_doc(u, text="DCD1007B") for u in urls}
+        rec, _ = run(kb, pages, monkeypatch, candidates=[], third_party=urls)
+        assert len(rec.evidence) == 2
+        assert all(d.third_party for d in rec.evidence.documents)
+
+    def test_research_confidence_weights_third_party_lower(self, kb, monkeypatch):
+        pages = {self.GS1: html_doc(self.GS1, text="DCD1007B")}
+        rec, _ = run(kb, pages, monkeypatch, candidates=[], third_party=[self.GS1])
+        # 0.45 base + 0.1 per third-party document (vs 0.2 per first-party).
+        assert rec.confidence["research"] == 0.55

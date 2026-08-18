@@ -14,6 +14,8 @@ from backend.sourcing.policy import (
     allowed,
     domains_for,
     is_blocked,
+    is_ecommerce,
+    is_reputable_third_party,
     official_domain,
     registrable,
 )
@@ -138,3 +140,67 @@ class TestDomainsFor:
 
     def test_unknown_brand_yields_nothing(self):
         assert domains_for("Totally Made Up Brand", "", "") == set()
+
+
+class TestEcommerce:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://www.amazon.com/dp/B000",
+            "https://www.homedepot.com/p/whatever",
+            "https://www.grainger.com/product/123",
+            "https://www.zoro.com/x",
+        ],
+    )
+    def test_marketplaces_and_distributors_are_ecommerce(self, url):
+        assert is_ecommerce(url) is True
+
+    def test_standards_bodies_are_not_ecommerce(self):
+        assert is_ecommerce("https://www.nema.org/standards") is False
+        assert is_ecommerce("https://www.gs1.org/products") is False
+
+    def test_garbage_is_ecommerce(self):
+        # Fails closed: an unparseable host is treated as a shop.
+        assert is_ecommerce("not a url") is True
+
+
+class TestReputableThirdParty:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://www.nema.org/standards/x",
+            "https://www.ansi.org/standard",
+            "https://www.gs1.org/products/00627987501019",
+            "https://www.energystar.gov/product/xyz",
+            "https://www.ul.com/certification",
+            "https://www.nsf.org/knowledge-library",
+            "https://www.csagroup.org/store/product",
+        ],
+    )
+    def test_allowlisted_hosts_are_reputable(self, url):
+        assert is_reputable_third_party(url) is True
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # e-commerce is never reputable, even if it sells the part
+            "https://www.amazon.com/dp/B000",
+            "https://www.homedepot.com/p/whatever",
+            "https://www.grainger.com/product/123",
+            # blocked aggregators are never reputable
+            "https://www.manualslib.com/manual/1/x.html",
+            "https://en.wikipedia.org/wiki/Drill",
+            # an unknown domain is not reputable by default
+            "https://random-spec-site.example/x",
+        ],
+    )
+    def test_shops_aggregators_and_unknown_hosts_are_refused(self, url):
+        assert is_reputable_third_party(url) is False
+
+    def test_non_http_schemes_are_refused(self):
+        assert is_reputable_third_party("ftp://gs1.org/x") is False
+        assert is_reputable_third_party("") is False
+
+    def test_subdomain_of_an_allowlisted_host_is_reputable(self):
+        assert is_reputable_third_party("https://gepir.gs1.org/search") is True
+        assert is_reputable_third_party("https://www.energy.gov/energysaver") is True

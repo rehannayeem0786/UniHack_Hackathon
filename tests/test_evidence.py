@@ -122,6 +122,106 @@ class TestBestProductPage:
     def test_none_when_empty(self):
         assert EvidenceBundle().best_product_page() is None
 
+    def test_third_party_documents_are_never_the_product_page(self):
+        # `MFR URL` is by definition the manufacturer's own page; a reputable
+        # third-party listing can never stand in for it, however well it names
+        # the part.
+        bundle = EvidenceBundle()
+        bundle.add(
+            page(
+                "https://www.gs1.org/products/00627987501019",
+                text="DCD1007B",
+                mentions_mpn=True,
+                url_names_part=True,
+                third_party=True,
+            )
+        )
+        assert bundle.best_product_page() is None
+
+
+class TestThirdParty:
+    def test_citation_carries_the_tier(self):
+        bundle = EvidenceBundle()
+        bundle.add(page("https://a.example/x", text="t", mentions_mpn=True))
+        bundle.add(
+            page(
+                "https://www.gs1.org/products/1",
+                text="t",
+                mentions_mpn=True,
+                third_party=True,
+            )
+        )
+        by_url = {c["url"]: c["source"] for c in bundle.citations()}
+        assert by_url["https://a.example/x"] == "first-party"
+        assert by_url["https://www.gs1.org/products/1"] == "third-party"
+
+    def test_first_party_sorts_ahead_of_third_party(self):
+        # Same kind: a first-party sheet outranks a third-party one so grounding
+        # and citation order trust the manufacturer first.
+        bundle = EvidenceBundle()
+        bundle.add(
+            page(
+                "https://www.gs1.org/products/1",
+                kind="specification",
+                text="third",
+                third_party=True,
+            )
+        )
+        bundle.add(
+            page(
+                "https://www.dewalt.com/spec.pdf",
+                kind="specification",
+                text="first",
+            )
+        )
+        assert bundle.documents[0].url.startswith("https://www.dewalt.com")
+
+    def test_has_first_party_distinguishes_the_fallback(self):
+        third = EvidenceBundle()
+        third.add(
+            page("https://www.gs1.org/products/1", text="t", third_party=True)
+        )
+        assert third.has_first_party is False
+        assert len(third.third_party_documents) == 1
+
+        both = EvidenceBundle()
+        both.add(page("https://a.example/x", text="t"))
+        both.add(page("https://www.gs1.org/products/1", text="t", third_party=True))
+        assert both.has_first_party is True
+        assert len(both.third_party_documents) == 1
+
+    def test_third_party_prompt_context_is_labelled(self):
+        bundle = EvidenceBundle()
+        bundle.add(
+            page(
+                "https://www.gs1.org/products/1",
+                text="DCD1007B 20V",
+                tables={"Sound Level": "47 dBA"},
+                third_party=True,
+                mentions_mpn=True,
+            )
+        )
+        context = bundle.as_prompt_context(2000)
+        # The model must see that these specifications are not the manufacturer's
+        # own claims, and the heading must not masquerade as a manufacturer sheet.
+        assert "THIRD-PARTY" in context
+        assert "MANUFACTURER SPECIFICATIONS" not in context
+        assert "Sound Level: 47 dBA" in context
+
+    def test_third_party_prompt_context_never_pretends_to_be_manufacturer(self):
+        # A bundle with only third-party documents must not produce the
+        # "MANUFACTURER SPECIFICATIONS" heading.
+        bundle = EvidenceBundle()
+        bundle.add(
+            page(
+                "https://www.gs1.org/products/1",
+                text="t",
+                tables={"Material": "Steel"},
+                third_party=True,
+            )
+        )
+        assert "MANUFACTURER SPECIFICATIONS" not in bundle.as_prompt_context(2000)
+
 
 class TestPromptContext:
     def test_respects_the_character_budget(self):

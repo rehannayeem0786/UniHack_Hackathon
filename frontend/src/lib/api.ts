@@ -37,6 +37,8 @@ export interface CitationPayload {
   from_cache: boolean;
   characters: number;
   table_rows: number;
+  /** Trust tier: `first-party` (manufacturer) or `third-party` (fallback). */
+  source?: string;
 }
 
 export interface RecordPayload {
@@ -167,6 +169,8 @@ export interface Metrics {
     records_with_verified_source: number;
     documents_read: number;
     documents_by_kind: Record<string, number>;
+    third_party_documents: number;
+    records_supplemented_third_party: number;
     deep_product_links: number;
     deep_link_rate: number;
     filled_attribute_values: number;

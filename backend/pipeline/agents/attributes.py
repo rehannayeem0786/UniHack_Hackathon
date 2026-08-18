@@ -283,13 +283,30 @@ class AttributeAgent:
             if document is None:
                 continue
             record.grounded[attr.label] = document.url
-            attr.confidence = max(attr.confidence, 0.97)
-            attr.source = f"{attr.source}+evidence-verbatim"
+            # A value confirmed in the manufacturer's own document earns a
+            # higher ceiling than one confirmed in a reputable third-party
+            # source; both outrank an ungrounded value.
+            attr.confidence = max(
+                attr.confidence, 0.85 if document.third_party else 0.97
+            )
+            tag = "evidence-third-party" if document.third_party else "evidence-verbatim"
+            attr.source = f"{attr.source}+{tag}"
 
         if record.grounded:
+            third_party = sum(
+                1
+                for url in record.grounded.values()
+                if any(d.url == url and d.third_party for d in bundle.documents)
+            )
+            first_party = len(record.grounded) - third_party
+            parts = []
+            if first_party:
+                parts.append(f"{first_party} in a first-party source")
+            if third_party:
+                parts.append(f"{third_party} in a reputable third-party source")
             record.provenance["grounded_attributes"] = (
-                f"{len(record.grounded)} value(s) confirmed verbatim in a "
-                "first-party source"
+                f"{len(record.grounded)} value(s) confirmed verbatim: "
+                + ", ".join(parts)
             )
 
     def _absorb_extras(self, record: ProductRecord, result: dict) -> None:
@@ -367,8 +384,11 @@ class AttributeAgent:
             return
         record.approvals = sorted(dict.fromkeys([*record.approvals, *added]))
         record.grounded["Standard/Approvals"] = source_url
+        tier = "reputable third-party source" if any(
+            d.url == source_url and d.third_party for d in bundle.documents
+        ) else "first-party source"
         record.provenance["approvals"] = (
-            f"{len(added)} certification(s) read verbatim from a first-party source"
+            f"{len(added)} certification(s) read verbatim from a {tier}"
         )
 
     def _approvals_from_brand(self, record: ProductRecord) -> None:
