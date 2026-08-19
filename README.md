@@ -546,42 +546,43 @@ frontend reaches the API through the `VITE_API_BASE_URL` build-time variable.
      **`LLM_MAX_RETRIES`**, `ENABLE_LLM_CACHE=true`, `CACHE_DIR=.cache`
    - Web retrieval: **`WEB_ENABLED`**, `WEB_CACHE`, `WEB_TIMEOUT`,
      `WEB_MAX_DOCUMENTS`, `WEB_CONTEXT_CHARS`
-   - `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://<your-app>.vercel.app`
+   - `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://uni-hack-hackathon.vercel.app`
 
    Missing any of the `*_MODEL_CHAIN` values silently drops the fallback
    models; missing a whole provider's key silently disables that provider.
    Both degrade accuracy instead of failing loudly, which is why the service
    verifies itself at `/api/health` (see step 6).
 
-5. **Ship the cache.** `data/cache/` holds every LLM response and fetched web
+5. **Keep the cache.** `.cache/` holds every LLM response and fetched web
    source. Local runs replay it at ~0.02 s/row with the exact answers your best
-   model produced; a deployed instance with a cold cache must run everything
-   live against free-tier quota and falls back to weaker models. So the cache
-   is **committed to the repo** (the free-tier-friendly option — no disk, no
-   paid plan, no manual upload):
+   model produced; a cold deployed instance must run everything live against
+   free-tier quota and falls back to weaker models. So seed it locally and
+   carry it onto the persistent disk the blueprint mounts at `.cache`:
 
    ```sh
-   # Run locally once (with your best model chain in .env), then push:
+   # Locally (with your best model chain in .env):
    python scripts/seed_cache.py              # the demo holdout rows
    python scripts/seed_cache.py --fold all   # or the full 200-row catalogue
-   git add data/cache
-   git commit -m "seed cache"
-   git push
    ```
 
-   Every Render deploy then builds with those answers pre-loaded, so re-runs
-   are instant **and** as accurate as local. Running the pipeline again on the
-   server re-uses the committed answers instead of re-answering. If the cache
-   grows too big for git, switch to a **Persistent Disk mounted at
-   `data/cache`** (`render.yaml`'s disk block is optional and only needed then).
-   Reviewer decisions in `data/corrections.jsonl` live on Render's ephemeral
-   disk; commit that file too (or add a second disk over `data/`) to keep them.
+   Then copy the local `.cache/` folder onto the mounted disk (via Render's
+   Shell tab + SCP/wormhole, or a one-off job). Once the disk holds those
+   answers, deployed re-runs of those rows are instant **and** as accurate as
+   local, across every redeploy. Note: Render only supports persistent disks
+   on paid plans; on the free tier there is no disk, so uploads/copies are not
+   possible through disk mounts — instead run `seed_cache.py` on the deployed
+   instance, or accept live re-runs (the model chains in `render.yaml` keep
+   those accurate, just slower). Reviewer decisions in
+   `data/corrections.jsonl` are also ephemeral; commit that file to the repo
+   (or add a disk over `data/`) to keep them.
 
 6. Deploy, then verify: `https://<service>.onrender.com/api/health` returns the
    readiness JSON — and now also the **effective** config: `llm.chains` (the
-   exact fallback order), `llm.cache.entries` (should be > 0 after seeding),
-   `llm.cache.hit_rate` and `llm.cache.failures`. Compare these to your local
-   `/api/health`; a mismatch is the reason deployed accuracy drifted.
+   exact fallback order — it must list real model names, never env-var names
+   like `GEMINI_MODEL`), `llm.cache.entries` (should be > 0 once the disk cache
+   is in place), `llm.cache.hit_rate` and `llm.cache.failures`. Compare these
+   to your local `/api/health`; a mismatch is the reason deployed accuracy
+   drifted.
 
 
 ### Frontend on Vercel

@@ -2,23 +2,20 @@
 
 Running the pipeline once per row writes every LLM response (keyed by a SHA-256
 hash of the prompt, tag and schema) and every fetched web source into
-`settings.cache_path` (`data/cache/` by default). The cache key deliberately
+`settings.cache_path` (`.cache/` by default). The cache key deliberately
 ignores which model answered, so those seeded responses replay on any later
 run - including the deployed service - with identical content and at ~0 cost.
 
-`data/cache/` is committed to the repo (unlike the old hidden `.cache/`), so
-the deployment flow is: seed locally with your best model chain, push the
-folder to GitHub, and every Render deploy builds with those answers pre-loaded.
-No disk, no paid plan, no manual upload.
+`.cache/` is git-ignored, so to give the deployed service the benefit of these
+answers, make the warmed directory available to it: upload/copy the `.cache`
+folder onto the Render persistent disk mounted at `.cache` (the disk survives
+redeploys), or run this script on the deployed machine once.
 
 Examples
 --------
     python scripts/seed_cache.py               # holdout fold (the demo rows)
     python scripts/seed_cache.py --fold all    # the full 200-row catalogue
     python scripts/seed_cache.py --limit 10    # a quick smoke seed
-
-Then commit and push the cache:
-    git add data/cache && git commit -m "seed cache" && git push
 """
 
 from __future__ import annotations
@@ -112,10 +109,9 @@ def main() -> int:
     if cache_dir.exists():
         n_cache = sum(1 for _ in cache_dir.glob("*.json"))
     print(f"\nCache now holds {n_cache} JSON entries under {cache_dir}.")
-    print("Ready to commit:  git add data/cache data && "
-          "git commit -m 'seed cache' && git push")
-    print("On Render, CACHE_DIR=data/cache reads these committed answers "
-          "directly - no disk or manual upload needed.")
+    print("Make these answers available to the deployed service: copy the "
+          "folder onto Render's persistent disk mounted at .cache, or run this "
+          "script on the deployed machine. See the README deployment notes.")
     return 1 if usage["failures"] else 0
 
 

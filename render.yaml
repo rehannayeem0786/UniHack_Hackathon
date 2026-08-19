@@ -32,16 +32,16 @@ services:
       - key: GROQ_MODEL_FAST
         value: llama-3.1-8b-instant
       # Set the multi-model fallback chain so a quota wall never degrades to
-      # the deterministic path. Match your local .env; weak models last.
+      # the deterministic path. Matches the local .env; weak models last.
       - key: GROQ_MODEL_CHAIN
-        value: openai/gpt-oss-120b,llama-3.3-70b-versatile,openai/gpt-oss-20b,llama-3.1-8b-instant
+        value: llama-3.3-70b-versatile,openai/gpt-oss-20b,llama-3.1-8b-instant,qwen/qwen3.6-27b,openai/gpt-oss-120b
       # --- Gemini (fallback provider) ---
       - key: GEMINI_MODEL
         value: gemini-3.6-flash
       - key: GEMINI_MODEL_FAST
         value: gemini-3.5-flash-lite
       - key: GEMINI_MODEL_CHAIN
-        value: gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite
+        value: gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-flash-latest,gemma-4-31b-it
       # --- Pipeline tuning ---
       # Lower concurrency / more retries keeps a live run inside free-tier
       # per-minute limits instead of triggering the fallback chain.
@@ -53,11 +53,12 @@ services:
         value: "4"
       - key: ENABLE_LLM_CACHE
         value: "true"
-      # Committed cache: data/cache ships with the repo, so every deploy already
-      # has the best previously computed answers pre-loaded (fast + accurate on
-      # the free plan). Rebuild it locally with scripts/seed_cache.py and push.
+      # .cache is the canonical cache dir. It is git-ignored, so seed it locally
+      # (scripts/seed_cache.py) and make it available to the service through the
+      # persistent disk mounted at .cache below, so cached answers and web
+      # evidence survive redeploys.
       - key: CACHE_DIR
-        value: data/cache
+        value: .cache
       # --- Manufacturer source retrieval (web evidence) ---
       - key: WEB_ENABLED
         value: "true"
@@ -74,20 +75,22 @@ services:
       # --- Server / CORS ---
       - key: LOG_LEVEL
         value: info
+      # The frontend origin(s) the API will answer cross-origin. Include the
+      # Vercel-hosted app or the browser will block every response (CORS).
       - key: CORS_ORIGINS
-        value: http://localhost:5173,http://127.0.0.1:5173
+        value: http://localhost:5173,http://127.0.0.1:5173,https://uni-hack-hackathon.vercel.app
     # Secrets - set once in the Render dashboard, never committed here.
     # - key: GROQ_API_KEY
     #   sync: false
     # - key: GEMINI_API_KEY
     #   sync: false
-    # A persistent disk is OPTIONAL once CACHE_DIR=data/cache is committed to
-    # the repo (the free-tier-friendly default). Attach one only if the cache
-    # outgrows the repo or you want cache growth to stay out of git history;
-    # mount it over data/cache so CACHE_DIR resolves to it.
+    # A persistent disk keeps the warmed LLM/web cache (and thus the *fast,
+    # accurate* re-runs it provides) between redeploys. Mount it over .cache
+    # so CACHE_DIR=.cache resolves to it. Note: persistent disks require a
+    # paid Render plan (disks are ignored on the free tier).
     disk:
       name: cache
-      mountPath: /opt/render/project/src/data/cache
+      mountPath: /opt/render/project/src/.cache
       sizeGB: 1
 
 # To also keep reviewer corrections between redeploys, mount a second disk at

@@ -353,6 +353,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(detail, response.status);
   }
 
+  // A static frontend host (e.g. Vercel with a catch-all SPA rewrite) answers
+  // every unknown path with index.html, so an API call that lands on the wrong
+  // origin comes back as HTML with status 200. Calling response.json() on it
+  // would throw a confusing "Unexpected token '<'" - name the real cause.
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("text/html")) {
+    throw new ApiError(
+      "The API returned HTML instead of JSON. Check that VITE_API_BASE_URL is " +
+        "set on the deployed frontend (Vercel → Project → Settings → Environment " +
+        "Variables → Redeploy) and that Render's CORS_ORIGINS includes this site.",
+      response.status,
+    );
+  }
+
   return (await response.json()) as T;
 }
 

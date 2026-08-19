@@ -17,6 +17,7 @@ __pycache__/
 
 # --- Project artifacts ---
 .cache/
+data/cache/
 runs/
 artifacts/
 outputs/
