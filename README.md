@@ -508,3 +508,54 @@ hidden.
   These rows are flagged for review rather than passed off as confident.
 - **The service has no authentication** and binds to localhost. It is a local
   review tool; an auth layer is required before exposing it on a network.
+---
+
+## Deployment (Vercel frontend + Render API)
+
+The pipeline is a long-running FastAPI service (worker threads, in-memory jobs,
+streaming), so it cannot run as a Vercel serverless function. The working
+split is: **Vercel hosts the static Vite app, Render hosts the API**, and the
+frontend reaches the API through the `VITE_API_BASE_URL` build-time variable.
+
+### Backend on Render
+
+1. Push the repo to GitHub.
+2. Render dashboard → **New → Web Service** → connect the repo.
+3. Configure:
+   - Runtime: Python (version comes from `runtime.txt` in the repo root)
+   - Build command: `pip install -r requirements.txt`
+   - Start command: `uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT`
+   - Keep a **single instance / single worker**: `JobStore` is in-memory by
+     design, so multiple workers would not share job state.
+4. Environment variables (from `.env`):
+   `LLM_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_MODEL_FAST`,
+   `GROQ_MODEL_CHAIN`, `GEMINI_API_KEY`, and
+   `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://<your-app>.vercel.app`
+5. Deploy, then verify: `https://<service>.onrender.com/api/health` returns the
+   readiness JSON.
+
+Note: `.cache/` and `data/corrections.jsonl` live on Render's ephemeral disk, so
+cached LLM responses and review decisions are lost on redeploy. Add a Render
+**Persistent Disk** mounted over the repo's `data` directory if that matters.
+
+### Frontend on Vercel
+
+1. Vercel → **Add New → Project** → import the same repo.
+2. Configure project (the root directory is the important one):
+   - **Root directory:** `frontend` (`package.json` lives there, not at the
+     repo root)
+   - Framework preset: **Vite** · Build command: `npm run build` · Output
+     directory: `dist`
+3. Add the build-time environment variable:
+   `VITE_API_BASE_URL=https://<service>.onrender.com` (no trailing slash).
+   With it unset the frontend falls back to same-origin `/api` and behaves
+   exactly as it does in local development.
+4. Deploy and verify in the browser DevTools Network tab that `/api/*` calls
+   return 200 from the Render origin, and that the Enrich demo streams.
+
+### Security
+
+The API has no authentication (see Limitations). After deployment it is
+publicly reachable; add an auth layer (or at least a shared API-key header)
+before sharing the link broadly.
+

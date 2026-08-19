@@ -53,11 +53,12 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# The UI is served from the same origin, but permitting localhost keeps a
-# separately served frontend (e.g. a Vite dev server) working.
+# The UI is served from the same origin, but permitting the origins in
+# CORS_ORIGINS keeps a separately hosted frontend (a Vite dev server, or a
+# Vercel deployment pointing at this API) working.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
 )

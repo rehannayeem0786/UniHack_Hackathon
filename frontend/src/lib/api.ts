@@ -1,10 +1,18 @@
 /**
  * Typed client for the enrichment service.
  *
- * Requests go to the same origin: in production FastAPI serves the built
- * bundle, and in development Vite proxies /api. So there is no base URL to
- * configure and no CORS to reason about.
+ * Requests go to the same origin by default: in production FastAPI serves the
+ * built bundle, and in development Vite proxies /api. When the frontend is
+ * hosted separately (e.g. Vercel) and the API lives elsewhere (e.g. Render),
+ * set VITE_API_BASE_URL at build time and every request is prefixed with it.
+ * With the variable unset the base is empty and behaviour is unchanged.
  */
+
+// Optional API origin, baked in at build time. No trailing slash; the paths
+// below always start with /api.
+const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, "") ??
+  "";
 
 export interface HealthPayload {
   status: string;
@@ -304,13 +312,13 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(path, {
+    response = await fetch(`${API_BASE}${path}`, {
       headers: init?.body instanceof FormData ? {} : { "Content-Type": "application/json" },
       ...init,
     });
   } catch {
     throw new ApiError(
-      "Cannot reach the enrichment service. Is it running on port 8000?",
+      "Cannot reach the enrichment service. Is it running and is VITE_API_BASE_URL set correctly?",
       0,
     );
   }
@@ -357,7 +365,7 @@ export const api = {
     onEvent: (event: EnrichStreamEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> => {
-    const response = await fetch("/api/enrich/stream", {
+    const response = await fetch(`${API_BASE}/api/enrich/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ part_numbers: [partNumber] }),
@@ -432,7 +440,7 @@ export const api = {
 
   jobMetrics: (id: string) => request<Metrics>(`/api/jobs/${id}/metrics`),
 
-  exportUrl: (id: string) => `/api/jobs/${id}/export`,
+  exportUrl: (id: string) => `${API_BASE}/api/jobs/${id}/export`,
 
   // --- review queue ---
   reviewSummary: () => request<ReviewSummaryPayload>("/api/review/summary"),

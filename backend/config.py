@@ -102,6 +102,12 @@ class Settings(BaseSettings):
     host: str = Field(default="127.0.0.1", alias="HOST")
     port: int = Field(default=8000, ge=1, le=65535, alias="PORT")
     log_level: str = Field(default="info", alias="LOG_LEVEL")
+    # Browser origins the API will serve cross-origin. A comma-separated list
+    # so a separately hosted frontend (e.g. Vercel) can be added in one env var.
+    cors_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173",
+        alias="CORS_ORIGINS",
+    )
 
     # --- Derived paths ---
     @property
@@ -114,6 +120,10 @@ class Settings(BaseSettings):
         if not path.is_absolute():
             path = PROJECT_ROOT / path
         return path
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return _split(self.cors_origins)
 
     # --- Provider helpers ---
     @property
