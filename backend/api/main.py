@@ -39,6 +39,7 @@ from backend.knowledge.corrections import CORE_FIELDS, get_corrections
 from backend.knowledge.datasets import SplitData, load_split, records_from, to_record
 from backend.knowledge.registry import KnowledgeBase
 from backend.llm.client import get_client
+from backend.llm.pricing import estimate_cost
 from backend.pipeline.orchestrator import STAGES, EnrichmentPipeline, PipelineResult
 
 logger = logging.getLogger(__name__)
@@ -633,11 +634,50 @@ def job_export(job_id: str) -> StreamingResponse:
 # --- evidence --------------------------------------------------------------
 
 
+# The committed holdout run shipped from git (deliverables/metrics-holdout.json),
+# produced offline with the best models. It keeps the Evaluation and Economics
+# tabs populated instantly in any environment - including a fresh deploy with a
+# cold or quota-exhausted LLM key - until a live refresh overrides it.
+COMMITTED_METRICS = PROJECT_ROOT / "deliverables" / "metrics-holdout.json"
+
+
+def _load_committed_evaluation() -> dict[str, Any] | None:
+    """Serve the committed holdout run when no live run has happened yet.
+
+    Older committed files predate the `pipeline.cost` estimate, so it is
+    recomputed from the stored usage so exactly the same shape is returned as
+    a live run would produce.
+    """
+    try:
+        raw = json.loads(COMMITTED_METRICS.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    pipeline = raw.get("pipeline")
+    metrics = raw.get("metrics")
+    if not isinstance(pipeline, dict) or not isinstance(metrics, dict):
+        return None
+    if not isinstance(pipeline.get("cost"), dict):
+        pipeline["cost"] = estimate_cost(
+            pipeline.get("llm") or {}, pipeline.get("records") or 0
+        )
+    return {
+        "fold": "holdout",
+        "rows": pipeline.get("records", 0),
+        "pipeline": pipeline,
+        "metrics": metrics,
+    }
+
+
 @app.get("/api/evaluation")
 def evaluation(refresh: bool = False) -> dict[str, Any]:
-    """Holdout scores. Cached, because a full run costs API calls."""
+    """Holdout scores. Served from the in-memory run, then the committed best
+    run from git, and only when both are unavailable (or `refresh=true`) from a
+    brand-new live run - which costs API calls."""
     if not refresh and (cached := context.cached_evaluation()):
         return cached
+    if not refresh and (committed := _load_committed_evaluation()):
+        context.store_evaluation(committed)
+        return committed
 
     split = context.split
     result = context.pipeline.run(records_from(split.holdout_input))

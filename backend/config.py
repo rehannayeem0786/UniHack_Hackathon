@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     max_concurrency: int = Field(default=6, ge=1, le=64, alias="MAX_CONCURRENCY")
     llm_max_retries: int = Field(default=3, ge=0, le=10, alias="LLM_MAX_RETRIES")
     enable_llm_cache: bool = Field(default=True, alias="ENABLE_LLM_CACHE")
-    cache_dir: Path = Field(default=Path(".cache"), alias="CACHE_DIR")
+    cache_dir: Path = Field(default=Path("data/cache"), alias="CACHE_DIR")
     # Records per LLM request. Batching keeps a full run inside free-tier limits.
     batch_size: int = Field(default=8, ge=1, le=40, alias="BATCH_SIZE")
 

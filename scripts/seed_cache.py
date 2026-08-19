@@ -2,12 +2,14 @@
 
 Running the pipeline once per row writes every LLM response (keyed by a SHA-256
 hash of the prompt, tag and schema) and every fetched web source into
-`settings.cache_path` (`.cache/` by default). The cache key deliberately
+`settings.cache_path` (`data/cache/` by default). The cache key deliberately
 ignores which model answered, so those seeded responses replay on any later
 run - including the deployed service - with identical content and at ~0 cost.
-Seeding is how deployed accuracy is kept level with local accuracy: enrich
-locally with your best model chain, then make the warmed `.cache` directory
-available to the deployed instance (a Render persistent disk).
+
+`data/cache/` is committed to the repo (unlike the old hidden `.cache/`), so
+the deployment flow is: seed locally with your best model chain, push the
+folder to GitHub, and every Render deploy builds with those answers pre-loaded.
+No disk, no paid plan, no manual upload.
 
 Examples
 --------
@@ -15,8 +17,8 @@ Examples
     python scripts/seed_cache.py --fold all    # the full 200-row catalogue
     python scripts/seed_cache.py --limit 10    # a quick smoke seed
 
-After seeding, copy/point the deployed service's `.cache` at this directory
-(or upload it onto the persistent disk); see the README deployment notes.
+Then commit and push the cache:
+    git add data/cache && git commit -m "seed cache" && git push
 """
 
 from __future__ import annotations
@@ -110,8 +112,10 @@ def main() -> int:
     if cache_dir.exists():
         n_cache = sum(1 for _ in cache_dir.glob("*.json"))
     print(f"\nCache now holds {n_cache} JSON entries under {cache_dir}.")
-    print("Copy these across to the deployed service's persistent disk "
-          "(or set that instance's CACHE_DIR to this directory).")
+    print("Ready to commit:  git add data/cache data && "
+          "git commit -m 'seed cache' && git push")
+    print("On Render, CACHE_DIR=data/cache reads these committed answers "
+          "directly - no disk or manual upload needed.")
     return 1 if usage["failures"] else 0
 
 

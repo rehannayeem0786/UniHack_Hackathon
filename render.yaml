@@ -53,8 +53,11 @@ services:
         value: "4"
       - key: ENABLE_LLM_CACHE
         value: "true"
+      # Committed cache: data/cache ships with the repo, so every deploy already
+      # has the best previously computed answers pre-loaded (fast + accurate on
+      # the free plan). Rebuild it locally with scripts/seed_cache.py and push.
       - key: CACHE_DIR
-        value: .cache
+        value: data/cache
       # --- Manufacturer source retrieval (web evidence) ---
       - key: WEB_ENABLED
         value: "true"
@@ -78,12 +81,13 @@ services:
     #   sync: false
     # - key: GEMINI_API_KEY
     #   sync: false
-    # A persistent disk keeps the warmed LLM/web cache (and thus the *fast,
-    # accurate* re-runs it provides) between redeploys. Mount at the repo's
-    # .cache directory so CACHE_DIR=.<cache> resolves to it.
+    # A persistent disk is OPTIONAL once CACHE_DIR=data/cache is committed to
+    # the repo (the free-tier-friendly default). Attach one only if the cache
+    # outgrows the repo or you want cache growth to stay out of git history;
+    # mount it over data/cache so CACHE_DIR resolves to it.
     disk:
       name: cache
-      mountPath: /opt/render/project/src/.cache
+      mountPath: /opt/render/project/src/data/cache
       sizeGB: 1
 
 # To also keep reviewer corrections between redeploys, mount a second disk at

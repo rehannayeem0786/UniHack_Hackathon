@@ -114,7 +114,7 @@ export function EconomicsPanel() {
           title="No run to price yet"
           description="Run the holdout evaluation once and the cost figures will appear here."
           action={
-            <Button variant="outline" onClick={() => void evaluation.run()}>
+            <Button variant="outline" onClick={() => void api.evaluation(true).then(() => evaluation.run())}>
               <RefreshCw className="size-4" aria-hidden />
               Retry
             </Button>
@@ -132,7 +132,7 @@ export function EconomicsPanel() {
           real token counts priced at public list rates, real wall-clock seconds. Estimates
           are labelled as such; nothing here is a projection.
         </p>
-        <Button variant="outline" size="sm" onClick={() => void evaluation.run()}>
+        <Button variant="outline" size="sm" onClick={() => void api.evaluation(true).then(() => evaluation.run())}>
           <RefreshCw className="size-4" aria-hidden />
           Refresh
         </Button>
