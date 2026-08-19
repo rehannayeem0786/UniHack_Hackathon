@@ -3,6 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "description": "Dashboard for the multi-agent product enrichment pipeline",
   "scripts": {
     "dev": "vite",

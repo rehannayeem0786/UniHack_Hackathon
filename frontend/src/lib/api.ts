@@ -16,7 +16,26 @@ const API_BASE =
 
 export interface HealthPayload {
   status: string;
-  llm: { providers: string[]; configured: boolean };
+  llm: {
+    providers: string[];
+    configured: boolean;
+    /**
+     * The exact ordered model chain each provider will try. A deployed API
+     * whose env vars drifted from local (e.g. a lost GROQ_MODEL_CHAIN or an
+     * empty Gemini chain) is visible here immediately.
+     */
+    chains?: Record<string, string[]>;
+    cache?: {
+      enabled: boolean;
+      dir: string;
+      entries: number;
+      hit_rate: number;
+      live_calls: number;
+      failures: number;
+      by_model: Record<string, number>;
+      exhausted_models: string[];
+    };
+  };
   dataset: {
     labelled_rows: number;
     training_rows: number;

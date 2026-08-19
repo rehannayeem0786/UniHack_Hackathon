@@ -520,7 +520,10 @@ frontend reaches the API through the `VITE_API_BASE_URL` build-time variable.
 ### Backend on Render
 
 1. Push the repo to GitHub.
-2. Render dashboard → **New → Web Service** → connect the repo.
+2. Render dashboard → **New → Blueprint** → connect the repo and select
+   `render.yaml` — it already declares every non-secret environment variable,
+   the disk mount, and the start command below. (Or **New → Web Service** and
+   configure manually; the equivalent settings are listed below.)
 3. Configure:
    - Root directory: **leave blank** (repo root — `requirements.txt`,
      `.python-version` and `backend/` all live there; only **Vercel** needs the
@@ -532,31 +535,74 @@ frontend reaches the API through the `VITE_API_BASE_URL` build-time variable.
    - Start command: `uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT`
    - Keep a **single instance / single worker**: `JobStore` is in-memory by
      design, so multiple workers would not share job state.
-4. Environment variables (from `.env`):
-   `LLM_PROVIDER`, `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_MODEL_FAST`,
-   `GROQ_MODEL_CHAIN`, `GEMINI_API_KEY`, and
-   `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://<your-app>.vercel.app`
-5. Deploy, then verify: `https://<service>.onrender.com/api/health` returns the
-   readiness JSON.
+4. Environment variables (from `.env` — **all of them**, not just the keys):
+   - Secrets (set via Render's "Environment → Secrets", never committed):
+     `GROQ_API_KEY`, `GEMINI_API_KEY`
+   - Provider & models: `LLM_PROVIDER`, `GROQ_MODEL`, `GROQ_MODEL_FAST`,
+     **`GROQ_MODEL_CHAIN`**, **`GEMINI_MODEL`**, **`GEMINI_MODEL_FAST`**,
+     **`GEMINI_MODEL_CHAIN`**
+   - Pipeline tuning: **`MAX_CONCURRENCY`** (use `2` on the free tier so a
+     live run stays inside per-minute limits), **`BATCH_SIZE`**,
+     **`LLM_MAX_RETRIES`**, `ENABLE_LLM_CACHE=true`, `CACHE_DIR=.cache`
+   - Web retrieval: **`WEB_ENABLED`**, `WEB_CACHE`, `WEB_TIMEOUT`,
+     `WEB_MAX_DOCUMENTS`, `WEB_CONTEXT_CHARS`
+   - `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,https://<your-app>.vercel.app`
 
-Note: `.cache/` and `data/corrections.jsonl` live on Render's ephemeral disk, so
-cached LLM responses and review decisions are lost on redeploy. Add a Render
-**Persistent Disk** mounted over the repo's `data` directory if that matters.
+   Missing any of the `*_MODEL_CHAIN` values silently drops the fallback
+   models; missing a whole provider's key silently disables that provider.
+   Both degrade accuracy instead of failing loudly, which is why the service
+   verifies itself at `/api/health` (see step 6).
+
+5. **Keep the cache.** `.cache/` holds every LLM response and fetched web
+   source. Local runs replay it at ~0.02 s/row with the exact answers your best
+   model produced; a cold deployed instance must run everything live against
+   free-tier quota and falls back to weaker models. So mount a **Persistent
+   Disk at the repo's `.cache` directory** (the `render.yaml` blueprint does
+   this at `/opt/render/project/src/.cache`), then seed it:
+
+   ```sh
+   # Locally (with your best model chain in .env), then let the disk carry it:
+   python scripts/seed_cache.py              # the demo holdout rows
+   python scripts/seed_cache.py --fold all   # or the full 200-row catalogue
+   ```
+
+   Once seeded, deployed re-runs of those rows are instant **and** as accurate
+   as local. Note: `.cache/` and `data/corrections.jsonl` live on Render's
+   ephemeral disk by default and are lost on redeploy; the disk fixes that for
+   `.cache`. For reviewer decisions, mount a second disk over `data/` or commit
+   `data/corrections.jsonl` to the repo.
+
+6. Deploy, then verify: `https://<service>.onrender.com/api/health` returns the
+   readiness JSON — and now also the **effective** config: `llm.chains` (the
+   exact fallback order), `llm.cache.entries` (should be > 0 after seeding),
+   `llm.cache.hit_rate` and `llm.cache.failures`. Compare these to your local
+   `/api/health`; a mismatch is the reason deployed accuracy drifted.
+
 
 ### Frontend on Vercel
 
 1. Vercel → **Add New → Project** → import the same repo.
 2. Configure project (the root directory is the important one):
-   - **Root directory:** `frontend` (`package.json` lives there, not at the
-     repo root)
-   - Framework preset: **Vite** · Build command: `npm run build` · Output
-     directory: `dist`
-3. Add the build-time environment variable:
+   - **Root directory:** `frontend` (`package.json`, `vercel.json` and the
+     Vite config all live there, not at the repo root)
+   - Framework preset: **Vite** (auto-detected) · Build command: `npm run
+     build` · Output directory: `dist` — all three are also declared in
+     `frontend/vercel.json`, so the deployment does not depend on dashboard
+     settings being typed in correctly
+   - Node 20+ (declared via `engines` in `frontend/package.json`); the repo's
+     `.python-version` file is ignored by Vercel
+3. Add the build-time environment variable (Project → Settings →
+   Environment Variables, for **Production** and **Preview**):
    `VITE_API_BASE_URL=https://<service>.onrender.com` (no trailing slash).
    With it unset the frontend falls back to same-origin `/api` and behaves
-   exactly as it does in local development.
+   exactly as it does in local development — which is why it must be set for
+   this split deployment.
 4. Deploy and verify in the browser DevTools Network tab that `/api/*` calls
    return 200 from the Render origin, and that the Enrich demo streams.
+
+`frontend/vercel.json` also rewrites every unmatched path to `index.html`
+(future-proofing client-side navigation) and sets cache headers: immutable
+caching for the hashed `/assets/*` filenames, `no-cache` for `index.html`.
 
 ### Security
 

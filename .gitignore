@@ -29,6 +29,9 @@ frontend/.vite/
 frontend/smoke.png
 npm-debug.log*
 
+# --- Deployment ---
+.vercel/
+
 # --- Scratch / probes ---
 _probe*.py
 _p2.txt

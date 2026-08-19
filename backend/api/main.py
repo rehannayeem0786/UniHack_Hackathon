@@ -38,6 +38,7 @@ from backend.evaluation.scorer import Evaluator
 from backend.knowledge.corrections import CORE_FIELDS, get_corrections
 from backend.knowledge.datasets import SplitData, load_split, records_from, to_record
 from backend.knowledge.registry import KnowledgeBase
+from backend.llm.client import get_client
 from backend.pipeline.orchestrator import STAGES, EnrichmentPipeline, PipelineResult
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,33 @@ app.add_middleware(
 )
 
 jobs = JobStore()
+
+
+def _warmup() -> None:
+    """Pre-build the knowledge base, dataset split and LLM gateway on startup.
+
+    The `Context` accessors are lazy so the process boots fast and a script
+    (e.g. the seed-cache helper) never pays for state it does not need. But the
+    first web request would otherwise be the one to pay a ~1 s workbook split
+    plus a `KnowledgeBase.fit`, all on the request path. Warming them on a
+    background thread at boot moves that cost off the first user. It is best
+    effort: any failure only means the first request re-initialises lazily.
+    """
+    try:
+        # Touch the lazy Context accessors so real state is built once here.
+        _ = context.split
+        _ = context.kb
+        # Build the provider clients too, so the first live call skips the
+        # one-time SDK import and client construction.
+        _ = get_client()
+        logger.info("startup warmup complete")
+    except Exception:  # noqa: BLE001 - warmup must never prevent the app booting
+        logger.exception("startup warmup failed; first request will initialise lazily")
+
+
+@app.on_event("startup")
+def _startup_warmup_hook() -> None:
+    threading.Thread(target=_warmup, daemon=True, name="startup-warmup").start()
 
 
 class Context:
@@ -258,14 +286,48 @@ def _start(frame: pd.DataFrame, label: str, truth: pd.DataFrame | None) -> dict[
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    """Readiness plus what the knowledge base actually learned."""
+    """Readiness plus what the knowledge base learned and *how* it was configured.
+
+    Alongside the knowledge base summary this now reports the effective LLM
+    setup (provider chains, cache state, live-call failure/latency). A deployed
+    instance whose env vars drifted from local (e.g. a missing model chain, an
+    empty cache, or heavy quota fall-back onto small models) shows up here in
+    seconds after deploy instead of surfacing later as "lower accuracy".
+    """
     kb = context.kb
     split = context.split
+    client = get_client()
+    usage = client.stats.snapshot()
+    cache_dir = settings.cache_path
+    cache_entries = 0
+    if settings.enable_llm_cache and cache_dir.exists():
+        try:
+            cache_entries = sum(1 for _ in cache_dir.glob("*.json"))
+        except OSError:
+            cache_entries = -1  # could not enumerate
     return {
         "status": "ok",
         "llm": {
             "providers": settings.provider_order,
             "configured": settings.has_api_key,
+            # The exact ordered model chain each provider would try, so a
+            # deploy that only set GROQ_MODEL (and lost the multi-model chain,
+            # or any Gemini fallback) is immediately visible.
+            "chains": {
+                name: settings.chain_for(name) for name in settings.provider_order
+            },
+            "cache": {
+                "enabled": settings.enable_llm_cache,
+                "dir": str(cache_dir),
+                "entries": cache_entries,
+                # Process-wide stats: healthy = high hit rate, zero failures,
+                # no exhausted models.
+                "hit_rate": usage["cache_hit_rate"],
+                "live_calls": usage["live_calls"],
+                "failures": usage["failures"],
+                "by_model": usage["by_model"],
+                "exhausted_models": usage["exhausted_models"],
+            },
         },
         "dataset": {
             "labelled_rows": len(split.truth),
