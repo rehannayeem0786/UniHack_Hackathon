@@ -522,6 +522,9 @@ frontend reaches the API through the `VITE_API_BASE_URL` build-time variable.
 1. Push the repo to GitHub.
 2. Render dashboard → **New → Web Service** → connect the repo.
 3. Configure:
+   - Root directory: **leave blank** (repo root — `requirements.txt`,
+     `runtime.txt` and `backend/` all live there; only **Vercel** needs the
+     `frontend` root)
    - Runtime: Python (version comes from `runtime.txt` in the repo root)
    - Build command: `pip install -r requirements.txt`
    - Start command: `uvicorn backend.api.main:app --host 0.0.0.0 --port $PORT`
