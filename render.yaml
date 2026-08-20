@@ -53,12 +53,11 @@ services:
         value: "4"
       - key: ENABLE_LLM_CACHE
         value: "true"
-      # .cache is the canonical cache dir. It is git-ignored, so seed it locally
-      # (scripts/seed_cache.py) and make it available to the service through the
-      # persistent disk mounted at .cache below, so cached answers and web
-      # evidence survive redeploys.
+      # data/cache is COMMITTED to the repo, so every deploy ships with the best
+      # previously computed LLM + web answers pre-loaded (fast + accurate on the
+      # free tier, no disk). Rebuild locally with scripts/seed_cache.py and push.
       - key: CACHE_DIR
-        value: .cache
+        value: data/cache
       # --- Manufacturer source retrieval (web evidence) ---
       - key: WEB_ENABLED
         value: "true"
@@ -84,14 +83,11 @@ services:
     #   sync: false
     # - key: GEMINI_API_KEY
     #   sync: false
-    # A persistent disk keeps the warmed LLM/web cache (and thus the *fast,
-    # accurate* re-runs it provides) between redeploys. Mount it over .cache
-    # so CACHE_DIR=.cache resolves to it. Note: persistent disks require a
-    # paid Render plan (disks are ignored on the free tier).
-    disk:
-      name: cache
-      mountPath: /opt/render/project/src/.cache
-      sizeGB: 1
+    # A persistent disk is OPTIONAL and PAID-PLAN ONLY. The committed-cache
+    # default needs no disk (CACHE_DIR=data/cache ships with the repo), so there
+    # is deliberately NO disk block here: including one would make a Free-tier
+    # blueprint deploy fail. If the cache should ever live off-git, attach a
+    # disk manually in the Dashboard and mount it at data/cache.
 
 # To also keep reviewer corrections between redeploys, mount a second disk at
 # /opt/render/project/src/data (data/corrections.jsonl lives there). It is a

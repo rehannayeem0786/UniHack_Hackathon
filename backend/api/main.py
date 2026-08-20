@@ -285,6 +285,32 @@ def _start(frame: pd.DataFrame, label: str, truth: pd.DataFrame | None) -> dict[
 # --- system ----------------------------------------------------------------
 
 
+def _suspicious_chain_entries(chains: dict[str, list[str]]) -> list[str]:
+    """Flag unexpanded env-var references hidden inside model-chain values.
+
+    A common misconfiguration is setting GROQ_MODEL_CHAIN to something like
+    `llama-3.3-70b-versatile,GEMINI_MODEL,GEMINI_MODEL_FAST,GEMINI_MODEL_CHAIN`
+    - real model names pasted beside the *names* of other env vars (which were
+    never expanded). Real Groq/Gemini model ids are never ALL-CAPS with
+    underscores, so an entry that looks like a bare environment variable is a
+    chain that will fail the moment the primary model is exhausted. Reported
+    here so the misconfig shows up in /api/health within seconds of deploy.
+    """
+    import re
+
+    env_like = re.compile(r"^[A-Z][A-Z0-9_]*(MODEL|CHAIN|API_KEY|KEY)[A-Z0-9_]*$")
+    warnings: list[str] = []
+    for provider, models in (chains or {}).items():
+        for model in models or []:
+            if env_like.match(model or ""):
+                warnings.append(
+                    f"{provider} chain entry {model!r} looks like an unexpanded "
+                    "environment variable, not a model name - the fallback will "
+                    "fail when the primary model is unavailable"
+                )
+    return warnings
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     """Readiness plus what the knowledge base learned and *how* it was configured.
@@ -306,6 +332,8 @@ def health() -> dict[str, Any]:
             cache_entries = sum(1 for _ in cache_dir.glob("*.json"))
         except OSError:
             cache_entries = -1  # could not enumerate
+    chains = {name: settings.chain_for(name) for name in settings.provider_order}
+    warnings = _suspicious_chain_entries(chains)
     return {
         "status": "ok",
         "llm": {
@@ -314,9 +342,10 @@ def health() -> dict[str, Any]:
             # The exact ordered model chain each provider would try, so a
             # deploy that only set GROQ_MODEL (and lost the multi-model chain,
             # or any Gemini fallback) is immediately visible.
-            "chains": {
-                name: settings.chain_for(name) for name in settings.provider_order
-            },
+            "chains": chains,
+            # Non-empty when a chain contains an unexpanded env-var name in
+            # place of a real model (e.g. GEMINI_MODEL). Fix the env var.
+            "warnings": warnings,
             "cache": {
                 "enabled": settings.enable_llm_cache,
                 "dir": str(cache_dir),

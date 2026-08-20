@@ -25,6 +25,11 @@ export interface HealthPayload {
      * empty Gemini chain) is visible here immediately.
      */
     chains?: Record<string, string[]>;
+    /**
+     * Non-empty when a model chain contains an unexpanded env-var name in
+     * place of a real model (e.g. "GEMINI_MODEL" inside GROQ_MODEL_CHAIN).
+     */
+    warnings?: string[];
     cache?: {
       enabled: boolean;
       dir: string;
